@@ -1,0 +1,11 @@
+{
+  "invoice_id": "INV-82EC546DB6AD",
+  "approval_status": "Approved",
+  "line_sum": "402.85",
+  "stated_subtotal": "402.85",
+  "calculated_total": "405.85",
+  "stated_total": "405.85",
+  "review_count": 0,
+  "new_item_count": 0,
+  "duplicate_key": "EXAMPLE FOOD DISTRIBUTOR|INV-10025|2026-07-13|405.85"
+}

@@ -1,0 +1,4 @@
+Invoice ID,Invoice Date,Month,Vendor,Vendor SKU,Item ID,Item Description,Category,Quantity,Unit/Pack,Unit Price,Line Total,Previous Price,Price Change %,Price Alert,Match Status,Confidence %,Source Link,Notes
+INV-82EC546DB6AD,2026-07-13,2026-07,Example Food Distributor,CB4010,ITM-CB4010,CHX BRST BNLS SKNLS 4/10 LB,Unclassified,3,case,79.95,239.85,,,,Matched,98.00,sample_invoice_INV-10025.pdf,
+INV-82EC546DB6AD,2026-07-13,2026-07,Example Food Distributor,BB9612,ITM-BB9612,BRIOCHE BUN 8/12 CT,Unclassified,2,case,31.50,63.00,,,,Matched,97.00,sample_invoice_INV-10025.pdf,
+INV-82EC546DB6AD,2026-07-13,2026-07,Example Food Distributor,OIL350,ITM-OIL350,FRY OIL CLEAR 35 LB,Unclassified,2,jug,50.00,100.00,,,,Matched,99.00,sample_invoice_INV-10025.pdf,

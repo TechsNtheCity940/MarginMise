@@ -1,0 +1,2 @@
+Invoice ID,Invoice Date,Month,Vendor,Invoice Number,Subtotal,Fees,Tax,Credits,Invoice Total,Approved?,Source Link,Notes
+INV-82EC546DB6AD,2026-07-13,2026-07,Example Food Distributor,INV-10025,402.85,8.00,0.00,5.00,405.85,Yes,sample_invoice_INV-10025.pdf,

@@ -1,0 +1,5 @@
+name: restaurant-cost-controller
+version: 1.0.0
+description: "Restaurant invoice, vendor-price, purchasing-cost, and sales-margin control specialist."
+author: "Prepared for Morgan Griffin"
+license: "Private Use"

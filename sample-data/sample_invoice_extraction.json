@@ -1,0 +1,42 @@
+{
+  "vendor": "Example Food Distributor",
+  "invoice_number": "INV-10025",
+  "invoice_date": "2026-07-13",
+  "subtotal": 402.85,
+  "fees": 8.0,
+  "tax": 0.0,
+  "credits": 5.0,
+  "total": 405.85,
+  "currency": "USD",
+  "source_file": "sample_invoice_INV-10025.pdf",
+  "source_link": "",
+  "items": [
+    {
+      "sku": "CB4010",
+      "description": "CHX BRST BNLS SKNLS 4/10 LB",
+      "quantity": 3,
+      "unit": "case",
+      "unit_price": 79.95,
+      "line_total": 239.85,
+      "confidence": 0.98
+    },
+    {
+      "sku": "BB9612",
+      "description": "BRIOCHE BUN 8/12 CT",
+      "quantity": 2,
+      "unit": "case",
+      "unit_price": 31.5,
+      "line_total": 63.0,
+      "confidence": 0.97
+    },
+    {
+      "sku": "OIL350",
+      "description": "FRY OIL CLEAR 35 LB",
+      "quantity": 2,
+      "unit": "jug",
+      "unit_price": 50.0,
+      "line_total": 100.0,
+      "confidence": 0.99
+    }
+  ]
+}

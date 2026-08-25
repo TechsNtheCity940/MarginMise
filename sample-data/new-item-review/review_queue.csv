@@ -1,0 +1,4 @@
+Created Date,Type,Invoice ID,Vendor,Item ID,Issue,Source Link,Status,Resolution
+2026-07-13,Invoice Line,INV-82EC546DB6AD,Example Food Distributor,ITM-DB0AE1DD0000,New Item,sample_invoice_INV-10025.pdf,Open,
+2026-07-13,Invoice Line,INV-82EC546DB6AD,Example Food Distributor,ITM-F84FB041006D,New Item,sample_invoice_INV-10025.pdf,Open,
+2026-07-13,Invoice Line,INV-82EC546DB6AD,Example Food Distributor,ITM-9B2D18F4F2EE,New Item,sample_invoice_INV-10025.pdf,Open,
