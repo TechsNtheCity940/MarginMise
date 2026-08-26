@@ -32,7 +32,7 @@ import sys
 import tempfile
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -2701,6 +2701,86 @@ class InvoicePipeline:
 
     def export_owner_report(self, start: str, end: str, destination: Path | None = None):
         return self.phase3.export_owner_report(start, end, destination)
+
+    def weekly_invoice_log(self, week_start: str | None = None) -> dict:
+        """Generate a weekly invoice log PDF for the past 7 days.
+
+        Args:
+            week_start: ISO date string for Monday of the target week.
+                        Defaults to the most recent Monday.
+
+        Returns:
+            Dict with keys: pdf_path, week_start, week_end, invoice_count, total_cost
+        """
+        from weekly_invoice_log import generate_weekly_invoice_log, WeeklyInvoiceRow
+
+        ws = self.workspace
+        reference = date.fromisoformat(week_start) if week_start else None
+        pdf_path = generate_weekly_invoice_log(ws, reference)
+
+        if pdf_path is None:
+            empty_start, empty_end = _get_week_range(reference)
+            return {
+                "pdf_path": None,
+                "week_start": str(empty_start),
+                "week_end": str(empty_end),
+                "invoice_count": 0,
+                "total_cost": "0.00",
+            }
+
+        conn = ws.connect()
+        try:
+            week_start_dt, week_end_dt = _get_week_range(reference)
+            raw_invoices = _get_week_invoices(conn, week_start_dt, week_end_dt)
+            invoices = [
+                WeeklyInvoiceRow(
+                    invoice_id=row["invoice_id"],
+                    invoice_number=row["invoice_number"] or "",
+                    vendor=row["vendor"] or "",
+                    vendor_key="",
+                    invoice_date=row["invoice_date"] or "",
+                    total=row["total"] or "0.00",
+                    source_path=row["source_original_path"],
+                    source_archive_path=row["source_archive_path"],
+                    source_name=row["source_name"] or "",
+                )
+                for row in raw_invoices
+            ]
+            total_cost = sum(
+                float(inv.total) for inv in invoices
+                if inv.total
+            )
+        finally:
+            conn.close()
+
+        return {
+            "pdf_path": str(pdf_path),
+            "week_start": str(week_start_dt),
+            "week_end": str(week_end_dt),
+            "invoice_count": len(invoices),
+            "total_cost": f"{total_cost:,.2f}",
+        }
+
+
+def _get_week_range(reference: date | None = None) -> tuple[date, date]:
+    monday = (reference or date.today()) - timedelta(days=(reference or date.today()).weekday())
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
+
+
+def _get_week_invoices(conn: sqlite3.Connection, week_start: date, week_end: date) -> list:
+    return conn.execute(
+        """
+        SELECT invoice_id, invoice_number, vendor, invoice_date, total,
+               source_original_path, source_archive_path, source_name
+          FROM invoices
+         WHERE status IN ('Processed', 'Approved', 'Reviewed')
+           AND invoice_date >= ?
+           AND invoice_date <= ?
+         ORDER BY invoice_date ASC, vendor ASC
+        """,
+        (week_start.isoformat(), week_end.isoformat()),
+    ).fetchall()
 
 
 def discover_sources(path: Path) -> list[Path]:
