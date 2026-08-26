@@ -3755,16 +3755,75 @@ class RestaurantCostControllerGUI:
 
     def add_local_event(self) -> None:
         if not self.require_permission("forecasts.manage") or not self.pipeline: return
-        name=simpledialog.askstring("Local event","Event name:",parent=self.root)
-        if not name: return
-        start=simpledialog.askstring("Local event","Start date (YYYY-MM-DD):",initialvalue=date.today().isoformat(),parent=self.root)
-        if not start: return
-        end=simpledialog.askstring("Local event","End date (YYYY-MM-DD):",initialvalue=start,parent=self.root)
-        impact=simpledialog.askfloat("Expected impact","Estimated sales impact percent (negative or positive):",initialvalue=10.0,parent=self.root)
-        try:
-            self.pipeline.add_local_event(name,start,end_date=end or start,impact_percent=impact or 0)
-            self.refresh_phase3()
-        except Exception as exc: messagebox.showerror("Event failed",str(exc))
+        
+        # Event input dialog with category selection
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Add Upcoming Event")
+        dlg.geometry("420x320")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        
+        # Event name
+        tk.Label(dlg, text="Event name:").grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        name_var = tk.StringVar()
+        tk.Entry(dlg, textvariable=name_var, width=40).grid(row=0, column=1, padx=10, pady=5)
+        
+        # Category dropdown
+        from events import get_categories, category_impact_hint
+        tk.Label(dlg, text="Category:").grid(row=1, column=0, sticky="w", padx=10, pady=5)
+        cat_var = tk.StringVar(value="Local Event")
+        cat_combo = ttk.Combobox(dlg, textvariable=cat_var, values=[c[0] for c in get_categories()], state="readonly", width=37)
+        cat_combo.grid(row=1, column=1, padx=10, pady=5)
+        
+        # Start date
+        tk.Label(dlg, text="Start date:").grid(row=2, column=0, sticky="w", padx=10, pady=5)
+        start_var = tk.StringVar(value=date.today().isoformat())
+        tk.Entry(dlg, textvariable=start_var, width=40).grid(row=2, column=1, padx=10, pady=5)
+        
+        # End date
+        tk.Label(dlg, text="End date:").grid(row=3, column=0, sticky="w", padx=10, pady=5)
+        end_var = tk.StringVar(value=date.today().isoformat())
+        tk.Entry(dlg, textvariable=end_var, width=40).grid(row=3, column=1, padx=10, pady=5)
+        
+        # Impact
+        tk.Label(dlg, text="Sales impact %:").grid(row=4, column=0, sticky="w", padx=10, pady=5)
+        impact_var = tk.DoubleVar(value=10.0)
+        tk.Entry(dlg, textvariable=impact_var, width=40).grid(row=4, column=1, padx=10, pady=5)
+        
+        # Notes
+        tk.Label(dlg, text="Notes:").grid(row=5, column=0, sticky="nw", padx=10, pady=5)
+        notes_text = tk.Text(dlg, width=40, height=4)
+        notes_text.grid(row=5, column=1, padx=10, pady=5)
+        
+        # Update impact hint when category changes
+        def on_category_change(*_):
+            cat = cat_var.get()
+            hint = category_impact_hint(cat)
+            impact_var.set(hint)
+        cat_var.trace("w", on_category_change)
+        
+        def save():
+            name = name_var.get().strip()
+            if not name:
+                messagebox.showwarning("Missing data", "Event name is required.")
+                return
+            try:
+                self.pipeline.add_local_event(
+                    name,
+                    start_var.get().strip(),
+                    end_date=end_var.get().strip() or start_var.get().strip(),
+                    impact_percent=impact_var.get() or 0,
+                    category=cat_var.get(),
+                    notes=notes_text.get("1.0", "end").strip(),
+                )
+                self.refresh_phase3()
+                dlg.destroy()
+            except Exception as exc:
+                messagebox.showerror("Event failed", str(exc))
+        
+        tk.Button(dlg, text="Save Event", command=save, bg="#0F6B78", fg="white", width=15).grid(row=6, column=1, pady=10, sticky="e")
+        tk.Button(dlg, text="Cancel", command=dlg.destroy, width=10).grid(row=6, column=0, pady=10, sticky="w", padx=10)
 
     def import_event_calendar(self) -> None:
         if not self.require_permission("forecasts.manage") or not self.pipeline: return

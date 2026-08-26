@@ -35,6 +35,9 @@ hidden_imports = [
     'launch_gui',
     'restaurant_cost_gui',
     'manager_first_gui',
+    'events',
+    'shift_reports',
+    'weekly_invoice_log',
     'src.theme',
 ]
 
