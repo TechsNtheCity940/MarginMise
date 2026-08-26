@@ -221,6 +221,7 @@ class ManagerChatService:
             "profitability": ("menu profitability", "true food cost", "recommended price", "pricing decision"),
             "savings": ("savings", "value delivered", "time saved", "return on investment"),
             "margin_memory": ("marginmemory", "margin memory", "decision memory", "manager decision", "past decision", "decision outcome", "manager override", "manager choice", "decision was", "decision", "manager made"),
+            "shift_reports": ("shift report", "shift log", "shift summary", "daily shift", "shift review", "manager shift", "server report", "cashier report", "how did the shift run", "shift ran", "shift performance", "shift summary", "shift data"),
             "auto_upload": (
                 "auto upload", "automatic upload", "upload folder", "spreadsheet",
                 "workbook", "excel file", "file import", "stuck in approval",
@@ -451,6 +452,19 @@ class ManagerChatService:
             )
         except Exception as exc:
             context["operational_context_error"] = str(exc)
+
+        if "shift_reports" in intents:
+            try:
+                context["recent_shift_reports"] = self._query_rows(
+                    """SELECT log_id, source_path, source_name, report_date, shift,
+                              labor_cost, guests, net_sales, surcharge, notes, extracted_at
+                       FROM shift_report_logs
+                       ORDER BY extracted_at DESC
+                       LIMIT ?""",
+                    (min(max_items, 50),),
+                )
+            except Exception as exc:
+                context["shift_report_error"] = str(exc)
 
         if intents.intersection({"pos", "sales", "recipes", "waste_log", "purchase_orders", "mobile_counts", "accounting", "overview"}):
             try:
@@ -1484,6 +1498,7 @@ RESTAURANT_CONTEXT_JSON:
             "savings": {"savings_dashboard", "phase3_summary"},
             "sales": {"pos_item_sales_summary", "recent_sales_periods", "dashboard_summary"},
             "margin_memory": {"recent_margin_memory_decisions", "margin_memory_summary"},
+            "shift_reports": {"recent_shift_reports"},
         }
         sections = set().union(*(wanted_sections.get(intent, set()) for intent in intents)) or {"dashboard_summary"}
         for evidence_id, source in evidence.items():

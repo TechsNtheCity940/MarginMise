@@ -23,6 +23,7 @@ Supported document types (auto-classified):
     * Waste Logs — CSV/XLSX with date + item + quantity + reason
     * Item Planning — CSV/XLSX with count unit + units per purchase unit
     * Distributor Catalogs — CSV/XLSX with SKU + description + price
+    * Shift Reports — CSV/XLSX with shift, labor cost, guests, sales, surcharge
     * ZIP archives — unpacked and processed recursively
     * TXT files — treated as CSV (tab/comma/pipe delimited)
 
@@ -54,6 +55,19 @@ JSON_EXTENSIONS = {".json"}
 ARCHIVE_EXTENSIONS = {".zip"}
 ALL_SUPPORTED = INVOICE_EXTENSIONS | TABLE_EXTENSIONS | JSON_EXTENSIONS | ARCHIVE_EXTENSIONS
 
+# Shift-report detection patterns (used by both bulk_ingestion and shift_reports)
+SHIFT_KEYWORDS = re.compile(
+    r"shift[\s_\-]*report|shift[\s_\-]*log|shift[\s_\-]*summary|daily[\s_\-]*shift|shift[\s_\-]*review|"
+    r"manager[\s_\-]*shift|server[\s_\-]*report|cashier[\s_\-]*report",
+    re.IGNORECASE,
+)
+SHIFT_HEADER_PATTERNS = [
+    {"shift", "labor cost", "guests", "net sales", "surcharge"},
+    {"shift", "labor cost", "guests"},
+    {"shift", "manager", "sales", "guests"},
+    {"shift", "labor cost", "sales"},
+]
+
 
 @dataclass
 class IngestionResult:
@@ -65,6 +79,7 @@ class IngestionResult:
     by_type: dict[str, int] = field(default_factory=dict)
     by_status: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    shift_reports_extracted: int = 0
     summary: str = ""
 
 
@@ -202,10 +217,17 @@ def classify_file(path: Path, pipeline: InvoicePipeline) -> FileClassification:
         "inventory count": "Inventory Count", "waste": "Waste Log",
         "operating cost": "Operating Costs", "sales": "Sales Summary",
         "catalog": "Distributor Catalog",
+        "shift report": "Shift Report", "shift log": "Shift Report",
+        "shift summary": "Shift Report", "daily shift": "Shift Report",
     }
     for token, doc_type in hints.items():
         if token in filename:
             return FileClassification(doc_type, 0.45, f"Filename suggests {doc_type}")
+
+    # Column-based shift report detection
+    for pattern in SHIFT_HEADER_PATTERNS:
+        if pattern <= headers:
+            return FileClassification("Shift Report", 0.9, "Shift-report columns detected")
 
     return FileClassification("Unclassified", 0.0, "No supported data signature was found")
 
@@ -519,10 +541,36 @@ def _route_file(
         return _route_operating_costs(pipeline, path)
     elif doc_type == "Distributor Catalog":
         return _route_distributor_catalog(pipeline, path)
+    elif doc_type == "Shift Report":
+        return _route_shift_report(pipeline, path)
     elif doc_type == "Archive":
         return ("skipped", "ZIP archive - run process_folder with unzip_archives=True")
     else:
         return ("unclassified", classification.reason)
+
+
+def _route_shift_report(pipeline: InvoicePipeline, path: Path) -> tuple[str, str]:
+    """Route a shift report: extract summary fields and log reference only.
+
+    Raw shift data is NOT stored. Only a lightweight summary with the source
+    file path is logged so CostPilot can reference it.
+    """
+    from shift_reports import extract_shift_report, log_shift_report
+
+    summary = extract_shift_report(path)
+    if summary is None:
+        return ("skipped", "Could not parse shift report")
+
+    try:
+        with pipeline.workspace.connect() as conn:
+            log_shift_report(conn, summary)
+    except Exception as exc:
+        return ("error", f"Shift report logged but DB write failed: {exc}")
+
+    return (
+        "shift_report_extracted",
+        f"{summary.shift or summary.report_date or 'shift'} — {summary.notes} [src: {summary.source_name}]",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -841,6 +889,10 @@ def _process_files(
                 result.files_skipped += 1
             else:
                 result.files_processed += 1
+
+            # Track shift reports separately
+            if classification.document_type == "Shift Report":
+                result.shift_reports_extracted += 1
 
         except Exception as exc:
             result.files_with_errors += 1

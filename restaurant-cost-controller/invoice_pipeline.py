@@ -276,6 +276,20 @@ CREATE TABLE IF NOT EXISTS operating_costs (
     amount TEXT NOT NULL,
     source_file TEXT
 );
+
+CREATE TABLE IF NOT EXISTS shift_report_logs (
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_path TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    report_date TEXT,
+    shift TEXT,
+    labor_cost REAL,
+    guests INTEGER,
+    net_sales REAL,
+    surcharge REAL,
+    notes TEXT,
+    extracted_at TEXT NOT NULL
+);
 """
 
 
