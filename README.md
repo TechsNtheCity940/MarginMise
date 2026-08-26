@@ -1,10 +1,7 @@
 # MarginMise — Restaurant Cost Management
 
-**Talk Trash To Us...Seriously....We love it!**
+MarginMise is an all-in-one restaurant cost management system that runs entirely on your local machine — no cloud, no monthly fees, no internet required after install. It handles invoice processing, inventory planning, recipe costing, waste tracking, order predictions, and an AI assistant (CostPilot) that answers your business questions using local LLM inference.
 
-MarginMise (v3.5.0) is an all-in-one restaurant cost management system that runs entirely on your local machine — no cloud, no monthly fees, no internet required after install. It handles invoice processing, inventory planning, recipe costing, waste tracking, order predictions, and an AI assistant (CostPilot) that answers your business questions using local LLM inference.
-
-**Contact:** 940-612-9836 | 940-612-9045 | CurbsideCare940@gmail.com  
 **GitHub:** [TechsNtheCity940/MarginMise](https://github.com/TechsNtheCity940/MarginMise)
 
 ---
@@ -14,14 +11,21 @@ MarginMise (v3.5.0) is an all-in-one restaurant cost management system that runs
 ### Windows
 
 1. Download the latest release from the [Releases](https://github.com/TechsNtheCity940/MarginMise/releases) page, or build from source.
-2. Extract the zip and run `install_windows.bat`.
-3. Launch MarginMise from the Start Menu shortcut or by running `run_gui.bat`.
+2. Extract the zip and run `MarginMise.exe` or `install_windows.bat`.
+3. The first run will:
+   - Install Python if needed
+   - Create a virtual environment
+   - Install all dependencies
+   - Silently install Tesseract OCR
+   - Download the local AI model
+4. Subsequent launches start immediately.
+5. To distribute: copy `dist/MarginMise.exe` to any Windows PC. No Python installation is needed on the target machine.
 
 ### macOS / Linux
 
 ```bash
 git clone https://github.com/TechsNtheCity940/MarginMise.git
-cd MarginMise/restaurant-cost-controller
+cd MarginMise
 ./install_linux_macos.sh
 ./run_gui.sh
 ```
@@ -53,7 +57,7 @@ cd MarginMise/restaurant-cost-controller
 
 ### 5. CostPilot — Local AI Assistant
 - Ask questions like: *"What item sold the most last month?"*, *"What decisions did I make and what was the outcome?"*, *"How much did we spend on Ground Beef?"*
-- Uses **llama.cpp + LFM2.5** (CPU-only, 250MB model) — installed silently during first-run setup
+- Uses **llama.cpp + LFM2.5** (CPU-only, ~250MB model) — installed silently during first-run setup
 - Falls back to deterministic SQL answers when the LLM is unavailable
 - Every answer includes **source citations** for traceability
 
@@ -62,6 +66,7 @@ cd MarginMise/restaurant-cost-controller
 - Evaluates decisions against actual outcomes (usage, stockouts, ending inventory)
 - Learns from past overrides to generate smarter order predictions
 - Tracks patterns across similar demand scenarios
+- **Scorecard**: shows managers how the system is learning over time
 
 ### 7. Dashboard & Reporting
 - Real-time profit & loss dashboard
@@ -69,31 +74,66 @@ cd MarginMise/restaurant-cost-controller
 - Waste trend analysis
 - Export to Excel/PDF for accountant review
 
+### 8. Upcoming Events
+- Input upcoming events: concerts, holidays, weather, construction, promotions
+- Events influence demand forecasts automatically
+- Margin memory learns how each location responds to different event types
+
 ---
 
 ## 🏗️ Building from Source
 
-### Python Environment Setup
+### Prerequisites
+
+| Dependency | Purpose | Install Method |
+|---|---|---|
+| **Python 3.11+** | Core runtime | Installer or winget |
+| **Tesseract OCR** | Text extraction from scanned documents | Silent install via `local_ocr.py ensure --install-tesseract` |
+| **RapidOCR + ONNX Runtime** | Local OCR engine | `pip install -r requirements.txt` |
+| **llama.cpp + LFM2.5 model** | CostPilot AI assistant (~250MB) | Silent download via `local_ai.py ensure` |
+
+### Setup
 
 ```bash
-cd restaurant-cost-controller
-python3 -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate     # Windows
+git clone https://github.com/TechsNtheCity940/MarginMise.git
+cd MarginMise
 
+# Create virtual environment
+python3 -m venv .venv
+
+# Activate virtual environment
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+# Install dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### Required System Dependencies
+### First-Run Setup
 
-| Dependency | Purpose |
-|---|---|
-| **Python 3.12** | Core runtime |
-| **Tesseract OCR** | Text extraction from scanned documents (installed by install scripts) |
-| **RapidOCR (ONNX Runtime)** | Local OCR engine (installed via pip) |
-| **llama.cpp + LFM2.5 model** | CostPilot AI assistant (~250MB, installed by install scripts) |
+```bash
+# Install Tesseract OCR silently (Windows)
+python local_ocr.py ensure --install-tesseract
 
-The install scripts (`install_linux_macos.sh` / `install_windows.bat`) handle all of these automatically with **graceful degradation** — if any download fails, the program still works with deterministic (non-AI) mode.
+# Install local AI runtime and model
+python local_ai.py ensure
+
+# Launch the GUI
+python launch_gui.py
+```
+
+### Windows Installer
+
+For end users, run `install_windows.bat` — it will:
+1. Find or install Python 3.11+
+2. Create a virtual environment
+3. Install all Python dependencies
+4. Silently install Tesseract OCR
+5. Download llama.cpp + LFM2.5 model
+6. Create desktop/start menu shortcuts
 
 ### Running
 
@@ -117,59 +157,23 @@ This includes the SQLite database, extracted documents, OCR cache, and the local
 
 ## 📦 Building the Windows .exe (Standalone Executable)
 
-MarginMise can be packaged as a standalone Windows executable so managers don't need Python installed. Here's how:
-
-### Prerequisites (on the build machine)
-- Windows 10/11
-- Python 3.12 (https://python.org)
-- Node.js (optional, for icon generation)
+MarginMise can be packaged as a standalone Windows executable so managers don't need Python installed.
 
 ### Build Steps
 
 1. **Install build dependencies:**
    ```cmd
-   cd restaurant-cost-controller
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -r requirements.txt
    pip install pyinstaller
    ```
 
-2. **Copy the logo icon** to the project root:
-   The build uses `assets/app_icon_256.png` as the application icon (already included).
-
-3. **Build with PyInstaller:**
-   ```cmd
-   pyinstaller --onefile --windowed ^
-     --name "MarginMise" ^
-     --icon assets/app_icon_256.png ^
-     --add-data "assets;assets" ^
-     --hidden-import local_ai ^
-     --hidden-import local_ocr ^
-     --hidden-import manager_chat ^
-     --hidden-import invoice_pipeline ^
-     --hidden-import bulk_ingestion ^
-     --hidden-import recipe_costing ^
-     --hidden-import margin_memory ^
-     --hidden-import inventory_planning ^
-     --hidden-import phase2_features ^
-     --hidden-import phase3_features ^
-     --hidden-import operational_controls ^
-     --hidden-import excel_io ^
-     --hidden-import dashboard_service ^
-     --hidden-import dashboard_widgets ^
-     --hidden-import src.theme ^
-     launch_gui.py
-   ```
-
-   **Or use the provided build script:**
+2. **Build with PyInstaller:**
    ```cmd
    build_exe.bat
    ```
 
-4. **Find the output:** The executable will be at `dist/MarginMise.exe`
+3. **Find the output:** The executable will be at `dist/MarginMise.exe`
 
-5. **Distribute:** Copy `dist/MarginMise.exe` to any Windows PC. On first run, it will:
+4. **Distribute:** Copy `dist/MarginMise.exe` to any Windows PC. On first run, it will:
    - Extract itself to `%LOCALAPPDATA%\MarginMise`
    - Download Tesseract OCR (silent)
    - Download llama.cpp + LFM2.5 model (silent, ~250MB)
@@ -203,24 +207,6 @@ The spec file includes:
 | **Frost White** | `#F8FAFC` | App background, light mode surfaces |
 | **Charcoal** | `#1E293B` | Primary text |
 
-### Logo Assets
-
-The `assets/` directory contains:
-- `app_icon_*.png` — Application icons (16px to 1024px) for Windows taskbar, macOS dock, file associations
-- `favicon.ico` — Multi-size ICO for browser/web
-- `loading_screen_512x288.png` — Splash screen shown during startup + AI model loading
-- `desktop_800x600.png` — Desktop wallpaper/shortcut image
-- `MarginMiseLogo.png` — Full 1536×1024 high-res logo
-- `color_palette.json` — Developer reference for all colors
-
-### Logo Design
-
-The MarginMise logo features:
-- **Stylized "MM"** — Two overlapping geometric shapes (burgundy left M, teal right M) forming a modern, professional mark
-- **Orange dot** — Represents the "fire" of restaurant operations and the energy of the kitchen
-- **Navy background** — Professional, stable, trustworthy
-- **Clean white inner space** — Clarity and precision
-
 ---
 
 ## 📖 Usage Guide
@@ -232,6 +218,7 @@ The MarginMise logo features:
 3. **Import POS sales** exports from your POS system
 4. **Review recipe costs** in the Recipe Costing module
 5. **Ask CostPilot** questions by clicking the chat icon
+6. **Add upcoming events** to improve demand forecasting
 
 ### Year-End Reports
 
@@ -244,14 +231,10 @@ The MarginMise logo features:
 
 ## 🆘 Support
 
-- **Phone:** 940-612-9836
-- **Email:** CurbsideCare940@gmail.com
 - **GitHub Issues:** [Report a bug or request a feature](https://github.com/TechsNtheCity940/MarginMise/issues)
 
 ---
 
 ## 📄 License
 
-Proprietary — Developed by [Curbside Care](https://curbsidecare940.github.io) for independent restaurant operations.
-
-**Talk Trash To Us...Seriously....We love it!**
+Proprietary — Developed for independent restaurant operations.

@@ -39,13 +39,14 @@ hidden_imports = [
     'shift_reports',
     'weekly_invoice_log',
     'src.theme',
+    'bootstrap',
 ]
 
 # Collect all data files from assets directory
 datas = collect_data_files('assets', dir='assets')
 
 a = Analysis(
-    ['launch_gui.py'],
+    ['bootstrap.py'],
     pathex=['.'],
     binaries=[],
     datas=datas,
