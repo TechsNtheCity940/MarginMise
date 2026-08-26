@@ -44,8 +44,7 @@ except ImportError:  # pragma: no cover - installer supplies it.
 
 from excel_io import write_table_as
 
-# Hermes Agent is no longer required. All OCR and extraction use
-# RapidOCR (ONNX) and Tesseract, both fully local engines.
+# All OCR and extraction use RapidOCR (ONNX) and Tesseract, both fully local engines.
 from inventory_planning import (
     InventoryPlanningService,
     infer_count_conversion,

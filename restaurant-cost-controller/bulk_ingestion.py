@@ -137,7 +137,7 @@ def classify_file(path: Path, pipeline: InvoicePipeline) -> FileClassification:
             and {"quantity", "qty"} <= headers and {"unit price"} <= headers):
         return FileClassification("Invoice", 1.0, "Structured invoice header and line-item columns detected")
 
-    # Recipe with full HERMES spec
+    # Recipe with full spreadsheet spec
     if ({"menu item name"} <= headers and {"quantity count units"} <= headers
             and ({"inventory item id"} <= headers or {"vendor sku"} <= headers or {"inventory item name"} <= headers)):
         return FileClassification("Recipes", 1.0, "Menu recipe and ingredient columns detected")

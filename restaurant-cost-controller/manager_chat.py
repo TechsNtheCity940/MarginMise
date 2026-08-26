@@ -20,7 +20,8 @@ from typing import Any, Callable
 
 from inventory_planning import preferred_sales_rows
 
-# Hermes Agent is no longer required. CostPilot uses the local LLM runtime only.
+# CostPilot uses the local LLM runtime (llama.cpp) for AI assistance.
+# No cloud AI providers or external services are required.
 from local_ai import (
     MODEL_ID as LOCAL_COSTPILOT_MODEL,
     LocalAIError,

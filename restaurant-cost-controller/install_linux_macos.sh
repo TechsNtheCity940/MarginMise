@@ -15,7 +15,8 @@ if [[ -z "$PYTHON_BIN" ]]; then
     exit 1
 fi
 
-# Build the application environment independently of Hermes. OCR and all
+# Build the application environment independently of any agent framework. OCR and all
+# other engines are provisioned locally during first-run setup.
 # operational workflows must remain usable even when an AI provider is down.
 if [[ ! -d .venv ]]; then
     echo "Creating the MarginMise Python environment..."

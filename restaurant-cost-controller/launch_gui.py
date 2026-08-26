@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Reliable GUI launcher with persistent startup logging.
 
-All engines (OCR, CostPilot) are provisioned and verified locally. No external
-AI provider or cloud service is required. Hermes Agent is not used.
+All engines (OCR, CostPilot) are provisioned and verified locally. No external AI provider or cloud service is required.
 """
 from __future__ import annotations
 
