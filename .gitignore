@@ -1,26 +1,16 @@
-# === Top-level ignores (outer restaurant-cost-controller package) ===
-
-# OS junk
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+*.log
+restaurant_costs.sqlite3
+*.db
 .DS_Store
 Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# Large pre-cleanup archive (do not version this 13MB zip)
-MarginMise_pre_cleanup_20260728-145838.zip
-
-# Python cruft (inner project .gitignore also covers these, listed here for safety)
-.venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-*.egg-info/
-
-# Logs
-*.log
-Logs/
-
-# Editor / IDE
-.vscode/
-.idea/
-*.swp
+*.tmp
+logs/
