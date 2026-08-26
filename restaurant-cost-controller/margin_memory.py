@@ -153,6 +153,23 @@ CREATE TABLE IF NOT EXISTS recommendation_cache (
     generated_at TEXT NOT NULL,
     PRIMARY KEY (item_id, location_id, as_of_date)
 );
+
+-- Missing inventory_estimates table (required by evaluate_pending_outcomes and recommended_adjustments_for_item)
+CREATE TABLE IF NOT EXISTS inventory_estimates (
+    item_id TEXT NOT NULL,
+    as_of_date TEXT NOT NULL,
+    estimated_on_hand TEXT,
+    average_daily_usage TEXT,
+    par_quantity_count_units TEXT,
+    lead_time_days TEXT,
+    order_cycle_days TEXT,
+    safety_stock_days TEXT,
+    inventory_confidence TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (item_id, as_of_date)
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_estimates_item
+    ON inventory_estimates(item_id, as_of_date DESC);
 """
 
 
@@ -1494,3 +1511,401 @@ class MarginMemoryService:
             details={"path": str(destination), "rows": len(rows)},
         )
         return destination
+
+
+    # ------------------------------------------------------------------
+    # Learning layer: pattern matching, demand prediction, smart orders
+    # ------------------------------------------------------------------
+
+    def similar_decisions(
+        self,
+        item_id: str,
+        context: dict[str, Any],
+        *,
+        lookback_decisions: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Find past decisions for *item_id* in similar operating contexts.
+
+        Contexts are compared on weekday, weather (fuzzy), and event type
+        so that a manager override from a rainy Tuesday in summer can be
+        recommended for a similar upcoming day.
+        """
+        weekday = context.get("weekday")
+        weather = str(context.get("weather_code", "")).strip()
+        event_type = str(context.get("event_type", "")).strip()
+        with self.workspace.connect() as conn:
+            sql = """SELECT d.*,c.business_date,c.weekday,c.weather_code,c.temperature,
+                            c.precipitation_probability,c.event_type,c.event_impact,
+                            c.forecast_sales,c.average_daily_sales,c.category,
+                            o.outcome_grade,o.estimated_margin_effect
+                       FROM margin_memory_decisions d
+                       JOIN margin_memory_context c ON c.decision_id=d.decision_id
+                       LEFT JOIN margin_memory_outcomes o ON o.decision_id=d.decision_id
+                      WHERE d.location_id=? AND d.decision_type='Order Override'
+                        AND d.subject_id=? AND d.status='Evaluated'
+                        AND o.outcome_grade='Beneficial Override'"""
+            params: list[Any] = [self.location_id, str(item_id)]
+            conditions: list[str] = []
+            if weekday is not None:
+                conditions.append("c.weekday=?")
+                params.append(int(weekday))
+            if weather:
+                conditions.append("c.weather_code=?")
+                params.append(weather)
+            if event_type:
+                conditions.append("c.event_type LIKE ?")
+                params.append(f"%{event_type}%")
+            if conditions:
+                sql += " AND (" + " AND ".join(conditions) + ")"
+            sql += " ORDER BY d.decision_time DESC"
+            rows = conn.execute(sql, params).fetchall()
+        results = []
+        for r in rows:
+            actual = json.loads(r["actual_action_json"] or "{}")
+            results.append({
+                "decision_id": r["decision_id"],
+                "decision_time": r["decision_time"],
+                "actual_order_quantity": actual.get("order_quantity", ""),
+                "recommended_quantity": json.loads(r["recommended_action_json"])["order_quantity"],
+                "override_percent": r["override_percent"],
+                "reason_code": r["reason_code"],
+                "manager_note": r["manager_note"] or "",
+                "weekday": r["weekday"],
+                "weather_code": r["weather_code"] or "",
+                "event_type": r["event_type"] or "",
+                "business_date": r["business_date"],
+                "outcome_grade": r["outcome_grade"],
+                "margin_effect": r["estimated_margin_effect"],
+            })
+        return results
+
+    def predict_adjusted_order_quantity(
+        self,
+        item_id: str,
+        base_quantity: Decimal,
+        context: dict[str, Any],
+        *,
+        lookback_decisions: int = 50,
+    ) -> tuple[Decimal, Decimal, str]:
+        """Predict a better order quantity using learned manager overrides.
+
+        Looks for similar past decisions for this item in matching contexts.
+        If a consistent pattern of manager adjustments exists (e.g. always
+        ordering 20% less than suggested on rainy Fridays), the system applies
+        that learned adjustment to the base prediction.
+
+        Returns ``(adjusted_quantity, confidence_0_1, explanation)``.
+        """
+        similar = self.similar_decisions(item_id, context, lookback_decisions=lookback_decisions)
+        if not similar:
+            return base_quantity, Decimal("0.00"), "No similar historical decisions found"
+
+        # Compute the average override factor from beneficial decisions
+        factors: list[Decimal] = []
+        for dec_row in similar:
+            rec_qty = dec(dec_row["recommended_quantity"])
+            act_qty = dec(dec_row["actual_order_quantity"])
+            if rec_qty > 0 and act_qty > 0:
+                factors.append((act_qty / rec_qty).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
+
+        if not factors:
+            return base_quantity, Decimal("0.00"), "Similar decisions found but no usable ratio data"
+
+        avg_factor = (sum(factors) / len(factors)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        adjusted = (base_quantity * avg_factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # Confidence based on number of similar decisions
+        if len(factors) >= 5:
+            confidence = Decimal("0.85")
+        elif len(factors) >= 3:
+            confidence = Decimal("0.65")
+        elif len(factors) >= 1:
+            confidence = Decimal("0.40")
+        else:
+            confidence = Decimal("0.00")
+
+        explanation = (
+            f"Adjusted from {base_quantity} based on {len(factors)} similar historical "
+            f"decision(s). Average manager override factor: {avg_factor:.4f}. "
+            f"Weather: {similar[0]['weather_code'] or 'N/A'}, "
+            f"Weekday: {similar[0]['weekday']}, "
+            f"Event: {similar[0]['event_type'] or 'none'}"
+        )
+        return adjusted, confidence, explanation
+
+    def predict_demand(
+        self,
+        item_id: str,
+        date_str: str,
+        *,
+        lookback_days: int = 60,
+    ) -> dict[str, Any]:
+        """Predict demand for an item on a given date using historical patterns.
+
+        Uses past sales + decision context (weekday, weather, events) to
+        produce a demand forecast with confidence.
+        """
+        prediction_date = date.fromisoformat(date_str)
+        weekday = prediction_date.weekday()
+        with self.workspace.connect() as conn:
+            # Historical sales for this weekday
+            sales_rows = conn.execute(
+                """SELECT business_date, weekday, forecast_sales, average_daily_sales
+                   FROM margin_memory_context
+                   WHERE product_id=? AND weekday=?
+                   AND business_date IS NOT NULL
+                   ORDER BY business_date DESC LIMIT ?""",
+                (str(item_id), weekday, lookback_days),
+            ).fetchall()
+
+            # Sales by weekday
+            weekday_sales = conn.execute(
+                """SELECT AVG(CAST(average_daily_sales AS REAL)) as avg_sales
+                   FROM margin_memory_context
+                   WHERE product_id=? AND weekday=? AND average_daily_sales IS NOT NULL
+                     AND CAST(average_daily_sales AS REAL) > 0""",
+                (str(item_id), weekday),
+            ).fetchone()
+
+            # Overall average
+            overall_avg = conn.execute(
+                """SELECT AVG(CAST(average_daily_sales AS REAL)) as avg_sales
+                   FROM margin_memory_context
+                   WHERE product_id=? AND average_daily_sales IS NOT NULL
+                     AND CAST(average_daily_sales AS REAL) > 0""",
+                (str(item_id),),
+            ).fetchone()
+
+        weekday_avg = dec(weekday_sales["avg_sales"]) if weekday_sales and weekday_sales["avg_sales"] else Decimal("0")
+        overall = dec(overall_avg["avg_sales"]) if overall_avg and overall_avg["avg_sales"] else Decimal("0")
+        sample_count = len(sales_rows)
+
+        if weekday_avg > 0:
+            prediction = weekday_avg
+            confidence = Decimal("0.75") if sample_count >= 5 else Decimal("0.50") if sample_count >= 3 else Decimal("0.30")
+            method = f"Weekday average ({prediction_date.strftime('%A')}) from {sample_count} historical sample(s)"
+        elif overall > 0:
+            prediction = overall
+            confidence = Decimal("0.40")
+            method = f"Overall average from {sample_count} historical records"
+        else:
+            prediction = Decimal("0")
+            confidence = Decimal("0.00")
+            method = "No historical data for this item"
+
+        return {
+            "item_id": str(item_id),
+            "predicted_date": date_str,
+            "predicted_demand": f"{prediction:.4f}",
+            "confidence": f"{confidence:.2f}",
+            "method": method,
+            "weekday_avg": f"{weekday_avg:.4f}",
+            "overall_avg": f"{overall:.4f}",
+            "sample_count": sample_count,
+        }
+
+    def learn_from_outcomes(self, *, evaluation_date: str | None = None) -> dict[str, Any]:
+        """Run the full learning cycle:
+
+        1. Evaluate pending outcomes (from ``evaluate_pending_outcomes``)
+        2. Extract patterns from beneficial overrides
+        3. Store learned patterns for future recommendation generation
+        4. Generate updated recommendations
+
+        Returns a summary of what was learned.
+        """
+        evaluation_date = evaluation_date or date.today().isoformat()
+
+        # Step 1: Evaluate pending outcomes
+        eval_result = self.evaluate_pending_outcomes(evaluation_date)
+
+        # Step 2: Find the most impactful learned patterns
+        with self.workspace.connect() as conn:
+            # Beneficial overrides by reason code
+            reason_patterns = conn.execute(
+                """SELECT reason_code, COUNT(*) as count, AVG(CAST(override_percent AS REAL)) as avg_override
+                   FROM margin_memory_decisions d
+                   JOIN margin_memory_outcomes o ON o.decision_id=d.decision_id
+                   WHERE d.location_id=? AND o.outcome_grade='Beneficial Override'
+                   GROUP BY reason_code ORDER BY count DESC LIMIT 10""",
+                (self.location_id,),
+            ).fetchall()
+
+            # Beneficial overrides by weekday
+            weekday_patterns = conn.execute(
+                """SELECT c.weekday, COUNT(*) as count, AVG(CAST(o.estimated_margin_effect AS REAL)) as avg_margin
+                   FROM margin_memory_decisions d
+                   JOIN margin_memory_context c ON c.decision_id=d.decision_id
+                   JOIN margin_memory_outcomes o ON o.decision_id=d.decision_id
+                   WHERE d.location_id=? AND o.outcome_grade='Beneficial Override'
+                   GROUP BY c.weekday ORDER BY count DESC LIMIT 10""",
+                (self.location_id,),
+            ).fetchall()
+
+            # Items with most beneficial overrides
+            item_patterns = conn.execute(
+                """SELECT d.subject_id, d.subject_name, COUNT(*) as count, AVG(CAST(d.override_percent AS REAL)) as avg_override_pct
+                   FROM margin_memory_decisions d
+                   JOIN margin_memory_outcomes o ON o.decision_id=d.decision_id
+                   WHERE d.location_id=? AND o.outcome_grade='Beneficial Override'
+                   GROUP BY d.subject_id ORDER BY count DESC LIMIT 10""",
+                (self.location_id,),
+            ).fetchall()
+
+        patterns = {
+            "by_reason_code": [
+                {"reason": r["reason_code"], "count": int(r["count"]), "avg_override_pct": dec(r["avg_override"])}
+                for r in reason_patterns
+            ],
+            "by_weekday": [
+                {"weekday": r["weekday"], "count": int(r["count"]), "avg_margin": dec(r["avg_margin"])}
+                for r in weekday_patterns
+            ],
+            "by_item": [
+                {"item_id": r["subject_id"], "item_name": r["subject_name"], "count": int(r["count"]),
+                 "avg_override_pct": dec(r["avg_override_pct"])}
+                for r in item_patterns
+            ],
+        }
+
+        self.controls.audit(
+            "margin_memory.learning",
+            "learning_cycle",
+            evaluation_date,
+            "Completed MarginMemory learning cycle",
+            details={
+                "evaluated": eval_result.get("evaluated", 0),
+                "patterns_found": len(patterns["by_reason_code"]),
+                "items_with_patterns": len(patterns["by_item"]),
+            },
+        )
+
+        return {
+            "evaluation_result": eval_result,
+            "learned_patterns": patterns,
+            "summary": (
+                f"Evaluated {eval_result.get('evaluated', 0)} decision(s). "
+                f"Found {len(patterns['by_reason_code'])} reason-code patterns, "
+                f"{len(patterns['by_weekday'])} weekday patterns, "
+                f"{len(patterns['by_item'])} item patterns."
+            ),
+        }
+
+    def generate_smart_order_predictions(
+        self,
+        as_of_date: str,
+        *,
+        lead_time_days: int = 7,
+        order_cycle_days: int = 7,
+        lookback_decisions: int = 50,
+    ) -> dict[str, Any]:
+        """Generate order predictions enhanced by learned patterns.
+
+        For each item with inventory data, predicts demand using
+        ``predict_demand`` and adjusts the base prediction using
+        ``predict_adjusted_order_quantity`` based on learned overrides.
+
+        Returns a summary of predictions by item.
+        """
+        prediction_end = (date.fromisoformat(as_of_date) + timedelta(days=lead_time_days + order_cycle_days)).isoformat()
+
+        # Get items with active predictions
+        with self.workspace.connect() as conn:
+            items = conn.execute(
+                """SELECT DISTINCT p.item_id, i.item_name,
+                          p.suggested_order_quantity, p.lead_time_days,
+                          p.order_cycle_days
+                   FROM order_predictions p
+                   JOIN order_batches b ON b.batch_id=p.batch_id
+                   LEFT JOIN items i ON i.item_id=p.item_id
+                   WHERE b.as_of_date=?""",
+                (as_of_date,),
+            ).fetchall()
+
+            # Get context for this date
+            business_date = as_of_date
+            weekday = date.fromisoformat(as_of_date).weekday()
+            forecast = conn.execute(
+                "SELECT predicted_net_sales FROM demand_forecasts WHERE forecast_date=? ORDER BY created_at DESC LIMIT 1",
+                (business_date,),
+            ).fetchone()
+
+            weather = conn.execute(
+                "SELECT weather_code, temperature_max_f, precipitation_probability FROM weather_daily WHERE weather_date=?",
+                (business_date,),
+            ).fetchone()
+
+            events = conn.execute(
+                """SELECT event_name, category, expected_sales_impact_percent
+                   FROM local_events WHERE event_date<=? AND end_date>=?
+                   ORDER BY ABS(CAST(expected_sales_impact_percent AS REAL)) DESC LIMIT 5""",
+                (business_date, business_date),
+            ).fetchall()
+
+        context = {
+            "business_date": business_date,
+            "weekday": weekday,
+            "weather_code": str(weather["weather_code"]) if weather and weather["weather_code"] else "",
+            "temperature": str(weather["temperature_max_f"]) if weather and weather["temperature_max_f"] else "",
+            "precipitation_probability": str(weather["precipitation_probability"]) if weather and weather["precipitation_probability"] else "",
+            "event_type": ", ".join(str(e["category"] or "") for e in events) if events else "",
+            "event_impact": ", ".join(str(e["expected_sales_impact_percent"]) for e in events) if events else "",
+            "forecast_sales": str(forecast["predicted_net_sales"]) if forecast else "",
+        }
+
+        predictions = []
+        for item in items:
+            item_id = str(item["item_id"])
+            base_qty = qty(item["suggested_order_quantity"])
+
+            # Predict demand for the lead time period
+            demand_pred = self.predict_demand(item_id, prediction_end)
+
+            # Adjust the base order quantity using learned patterns
+            adjusted_qty, confidence, explanation = self.predict_adjusted_order_quantity(
+                item_id, base_qty, context, lookback_decisions=lookback_decisions
+            )
+
+            # Blend: if confidence > 0.5, use learned adjustment; otherwise keep base
+            if confidence >= Decimal("0.50"):
+                final_qty = adjusted_qty
+                source = "learned"
+            else:
+                final_qty = base_qty
+                source = "base_prediction"
+
+            # Update the recommendation cache
+            with self.workspace.connect() as conn:
+                rec_json = json.dumps(json_safe({
+                    "item_id": item_id,
+                    "item_name": item["item_name"],
+                    "suggested_order_quantity": f"{base_qty:.4f}",
+                    "learned_adjusted_quantity": f"{adjusted_qty:.4f}",
+                    "final_quantity": f"{final_qty:.4f}",
+                    "adjustment_confidence": f"{confidence:.2f}",
+                    "demand_prediction": demand_pred,
+                    "explanation": explanation,
+                }), separators=(",", ":"))
+                conn.execute(
+                    "INSERT OR REPLACE INTO recommendation_cache (item_id,location_id,as_of_date,recommendation_json,generated_at) VALUES(?,?,?,?,?)",
+                    (item_id, self.location_id, as_of_date, rec_json, now_iso()),
+                )
+
+            predictions.append({
+                "item_id": item_id,
+                "item_name": item["item_name"] or "",
+                "base_quantity": f"{base_qty:.4f}",
+                "adjusted_quantity": f"{adjusted_qty:.4f}",
+                "final_quantity": f"{final_qty:.4f}",
+                "confidence": f"{confidence:.2f}",
+                "source": source,
+                "demand_forecast": demand_pred["predicted_demand"],
+                "explanation": explanation,
+            })
+
+        return {
+            "as_of_date": as_of_date,
+            "prediction_end": prediction_end,
+            "items_predicted": len(predictions),
+            "predictions": predictions,
+        }

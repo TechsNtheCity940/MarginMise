@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Reliable Windows-friendly GUI launcher with persistent startup logging."""
+"""Reliable GUI launcher with persistent startup logging.
+
+All engines (OCR, CostPilot) are provisioned and verified locally. No external
+AI provider or cloud service is required. Hermes Agent is not used.
+"""
 from __future__ import annotations
 
 import sys
@@ -14,7 +18,6 @@ APP_DIR = Path(__file__).resolve().parent
 LOG_DIR = APP_DIR / "Logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 STARTUP_ERROR = LOG_DIR / "startup_error.log"
-HERMES_BOOTSTRAP_LOG = LOG_DIR / "hermes_bootstrap.log"
 LOCAL_OCR_BOOTSTRAP_LOG = LOG_DIR / "local_ocr_bootstrap.log"
 LOCAL_AI_BOOTSTRAP_LOG = LOG_DIR / "local_ai_bootstrap.log"
 
@@ -30,47 +33,12 @@ def show_error(text: str) -> None:
         from tkinter import messagebox
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror(
-            "MarginMise could not start",
-            "The application encountered a startup error.\n\n"
-            f"Details were saved to:\n{STARTUP_ERROR}\n\n"
-            f"{text[-1200:]}",
-            parent=root,
-        )
-        root.destroy()
+        root.attributes("-topmost", True)
+        root.after(100, lambda: root.destroy())
+        messagebox.showerror("MarginMise", text)
+        root.mainloop()
     except Exception:
         pass
-
-
-def bootstrap_hermes() -> None:
-    """Silently provision Hermes, the app profile, TLS trust, and free routing."""
-    if str(os.environ.get("MARGINMISE_SKIP_HERMES_BOOTSTRAP") or "").lower() in {"1", "true", "yes"}:
-        return
-    stamp = datetime.now().isoformat(timespec="seconds")
-    os.environ["MARGINMISE_HERMES_BOOTSTRAP_ACTIVE"] = "1"
-    try:
-        from hermes_backend import DEFAULT_PROFILE, HermesBackend
-
-        status = HermesBackend(APP_DIR).ensure(
-            DEFAULT_PROFILE,
-            auto_install=True,
-            install_profile=True,
-            configure_free_route=True,
-        )
-        payload = {"timestamp": stamp, "ok": True, "status": status.as_dict()}
-    except Exception:
-        payload = {
-            "timestamp": stamp,
-            "ok": False,
-            "error": traceback.format_exc(),
-            "message": (
-                "MarginMise started in degraded mode. Hermes will be retried in the background "
-                "and operational workflows remain available."
-            ),
-        }
-    finally:
-        os.environ.pop("MARGINMISE_HERMES_BOOTSTRAP_ACTIVE", None)
-    HERMES_BOOTSTRAP_LOG.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def bootstrap_local_ocr() -> None:
@@ -79,7 +47,7 @@ def bootstrap_local_ocr() -> None:
     try:
         from local_ocr import ensure
 
-        status = ensure(install_tesseract=False)
+        status = ensure(install_tesseract=True)
         payload = {"timestamp": stamp, "ok": status.ready, "status": status.as_dict()}
     except Exception:
         payload = {
@@ -122,16 +90,6 @@ def main() -> int:
             name="MarginMise-Local-AI-Bootstrap",
             daemon=True,
         ).start()
-        if str(os.environ.get("MARGINMISE_ENABLE_HERMES_BOOTSTRAP") or "").lower() in {
-            "1",
-            "true",
-            "yes",
-        }:
-            threading.Thread(
-                target=bootstrap_hermes,
-                name="MarginMise-Hermes-Bootstrap",
-                daemon=True,
-            ).start()
         import manager_first_gui
         return int(manager_first_gui.main() or 0)
     except BaseException:

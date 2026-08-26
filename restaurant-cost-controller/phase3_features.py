@@ -307,9 +307,22 @@ class Phase3Service:
         self._location_provider = provider
 
     @staticmethod
+    def _to_month_start(value: str) -> date:
+        """Parse a date or month string into the first day of that month.
+
+        Accepts both full ISO dates ('2026-01-15') and compact month strings
+        ('2026-01').
+        """
+        cleaned = str(value).strip()
+        # Month string like '2026-01'
+        if re.fullmatch(r"\d{4}-\d{2}", cleaned):
+            return date.fromisoformat(cleaned + "-01")
+        return date.fromisoformat(cleaned[:10]).replace(day=1)
+
+    @staticmethod
     def _month_keys(start: str, end: str) -> list[str]:
-        cursor = date.fromisoformat(str(start)[:10]).replace(day=1)
-        finish = date.fromisoformat(str(end)[:10]).replace(day=1)
+        cursor = Phase3Service._to_month_start(str(start))
+        finish = Phase3Service._to_month_start(str(end))
         months: list[str] = []
         while cursor <= finish:
             months.append(cursor.strftime("%Y-%m"))

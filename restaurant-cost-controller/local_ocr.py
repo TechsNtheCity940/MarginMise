@@ -67,43 +67,65 @@ def find_tesseract() -> str:
 
 
 def install_tesseract_silently(timeout: int = 600) -> tuple[bool, str]:
-    """Best-effort Windows install; RapidOCR remains available if this fails."""
+    """Best-effort Tesseract install on Windows (WinGet), Linux (apt), macOS (brew).
+    RapidOCR always remains available if this fails.
+    """
     existing = find_tesseract()
     if existing:
         return True, existing
-    if os.name != "nt":
-        return False, "Automatic Tesseract installation is currently supported on Windows only."
-    winget = shutil.which("winget")
-    if not winget:
-        return False, "WinGet is unavailable; RapidOCR will be used."
-    command = [
-        winget,
-        "install",
-        "--id",
-        TESSERACT_WINGET_ID,
-        "--exact",
-        "--silent",
-        "--disable-interactivity",
-        "--accept-package-agreements",
-        "--accept-source-agreements",
-    ]
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=max(60, int(timeout)),
-            creationflags=_creation_flags(),
-        )
-    except Exception as exc:
-        return False, f"Tesseract installation could not run: {exc}"
-    executable = find_tesseract()
-    if executable:
-        return True, executable
-    detail = (completed.stderr or completed.stdout or "installer returned no details").strip()
-    return False, f"Tesseract installer exit code {completed.returncode}: {detail[-500:]}"
+    if os.name == "nt":
+        winget = shutil.which("winget")
+        if not winget:
+            return False, "WinGet is unavailable; RapidOCR will be used."
+        command = [
+            winget, "install", "--id", TESSERACT_WINGET_ID, "--exact",
+            "--silent", "--disable-interactivity",
+            "--accept-package-agreements", "--accept-source-agreements",
+        ]
+        try:
+            completed = subprocess.run(
+                command, capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=max(60, int(timeout)),
+                creationflags=_creation_flags(),
+            )
+        except Exception as exc:
+            return False, f"Tesseract installation could not run: {exc}"
+        executable = find_tesseract()
+        if executable:
+            return True, executable
+        detail = (completed.stderr or completed.stdout or "installer returned no details").strip()
+        return False, f"Tesseract installer exit code {completed.returncode}: {detail[-500:]}"
+    # Linux: try apt-get (Debian/Ubuntu)
+    apt = shutil.which("apt-get")
+    if apt:
+        try:
+            subprocess.run(
+                [apt, "install", "-y", "--no-install-recommends", "tesseract-ocr"],
+                capture_output=True, text=True, timeout=max(120, int(timeout)),
+                check=True,
+            )
+            executable = find_tesseract()
+            if executable:
+                return True, executable
+            return False, "Tesseract was installed via apt but the executable was not found in PATH."
+        except Exception as exc:
+            return False, f"Tesseract apt install failed: {exc}"
+    # macOS: try brew
+    brew = shutil.which("brew")
+    if brew:
+        try:
+            subprocess.run(
+                [brew, "install", "tesseract"],
+                capture_output=True, text=True, timeout=max(300, int(timeout)),
+                check=True,
+            )
+            executable = find_tesseract()
+            if executable:
+                return True, executable
+            return False, "Tesseract was installed via brew but the executable was not found in PATH."
+        except Exception as exc:
+            return False, f"Tesseract brew install failed: {exc}"
+    return False, "No supported package manager found for automatic Tesseract installation; RapidOCR will be used."
 
 
 def status() -> LocalOCRStatus:

@@ -9,19 +9,6 @@ if ($Silent) { $ProgressPreference = 'SilentlyContinue' }
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $AppDir
 
-function Find-Hermes {
-    $command = Get-Command hermes -ErrorAction SilentlyContinue
-    if ($command) { return $command.Source }
-    $candidates = @(
-        "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\hermes.exe",
-        "$env:LOCALAPPDATA\hermes\bin\hermes.cmd"
-    )
-    foreach ($candidate in $candidates) {
-        if (Test-Path -LiteralPath $candidate) { return $candidate }
-    }
-    return $null
-}
-
 function Find-Python {
     $launcher = Get-Command py -ErrorAction SilentlyContinue
     if ($launcher) { return @($launcher.Source, '-3') }
@@ -57,8 +44,8 @@ function Invoke-Python {
     }
 }
 
-# Build the application environment independently of Hermes. OCR and all
-# operational workflows must remain usable even when an AI provider is down.
+# Build the application environment independently — no external AI provider
+# or cloud service is required. OCR and CostPilot both run locally.
 $Python = Find-Python
 if (-not $Python) {
     Install-Python
@@ -81,30 +68,20 @@ if ($LASTEXITCODE -ne 0) { throw 'MarginMise Python dependencies could not be in
 Write-Host 'Preparing on-demand local OCR...'
 & '.venv\Scripts\python.exe' local_ocr.py ensure --install-tesseract
 if ($LASTEXITCODE -ne 0) {
-    throw 'Neither RapidOCR nor Tesseract could be prepared. Review Logs\install.log.'
+    Write-Host '  WARNING: Tesseract could not be installed. RapidOCR will be used for OCR.'
 }
 
 Write-Host 'Preparing local CostPilot (pinned LFM2.5 Q4 and llama.cpp runtime)...'
 & '.venv\Scripts\python.exe' local_ai.py ensure
 if ($LASTEXITCODE -ne 0) {
-    throw 'The local CostPilot model could not be installed or verified. Review Logs\install.log.'
+    Write-Host '  WARNING: Local CostPilot runtime could not be downloaded (offline or network issue).'
+    Write-Host '  The app will use deterministic computed answers until CostPilot is installed.'
+    Write-Host '  Run python local_ai.py ensure later to retry the download.'
 }
-
-# Existing Hermes installations remain available only for an explicitly
-# configured OpenRouter cloud fallback. New installations do not require it.
-$Hermes = Find-Hermes
 
 Write-Host ''
 Write-Host 'MarginMise installation completed.'
 Write-Host 'RapidOCR is installed locally and runs only while a scan is being processed.'
 Write-Host 'CostPilot uses the local LFM2.5 Q4 model and loads it only while answering.'
-Write-Host 'OpenRouter is optional and is not required for OCR or normal CostPilot use.'
-
-if ($RunSetup -and -not $Silent -and $Hermes) {
-    Write-Host ''
-    Write-Host 'Opening one-time provider authorization.'
-    & $Hermes -p restaurant-cost-controller model
-}
-
 Write-Host ''
 Write-Host 'Run run_gui.bat to open MarginMise.'

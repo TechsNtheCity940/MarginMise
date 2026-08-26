@@ -220,7 +220,7 @@ class ReviewCopilotService:
         issues = f"{row['issue_types'] or ''} {row['issues'] or ''} {row['notes'] or ''}".lower()
         raw = str(canonical.get("_raw_text") or "").strip()
         items = canonical.get("items") if isinstance(canonical.get("items"), list) else []
-        extraction_failed = str(row["extraction_method"] or "") == "hermes-extraction-failed"
+        extraction_failed = str(row["extraction_method"] or "") == "local-extraction-failed"
         unreadable = extraction_failed or (
             not items
             and len(re.sub(r"\s+", "", raw)) < 40

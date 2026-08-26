@@ -3,8 +3,8 @@
 
 The service never gives the model direct write access to the restaurant ledger.
 It builds a bounded, restaurant-specific context packet from SQLite and current
-GUI state, then asks Hermes to explain that data. Consequential actions remain
-inside the normal GUI workflows where a manager must confirm them.
+GUI state, then asks the local CostPilot LLM to explain that data. Consequential
+actions remain inside the normal GUI workflows where a manager must confirm them.
 """
 from __future__ import annotations
 
@@ -20,13 +20,7 @@ from typing import Any, Callable
 
 from inventory_planning import preferred_sales_rows
 
-from hermes_backend import (
-    COSTPILOT_FREE_MODEL,
-    COSTPILOT_FREE_PROVIDER,
-    HermesBackend,
-    HermesBackendError,
-    is_free_model as is_remote_free_model,
-)
+# Hermes Agent is no longer required. CostPilot uses the local LLM runtime only.
 from local_ai import (
     MODEL_ID as LOCAL_COSTPILOT_MODEL,
     LocalAIError,
@@ -56,8 +50,6 @@ CREATE INDEX IF NOT EXISTS idx_manager_chat_messages_session
 
 DEFAULT_FREE_PROVIDER = "local"
 DEFAULT_FREE_MODEL = LOCAL_COSTPILOT_MODEL
-REMOTE_FREE_PROVIDER = COSTPILOT_FREE_PROVIDER
-REMOTE_FREE_MODEL = COSTPILOT_FREE_MODEL
 
 NAVIGATION_TARGETS = (
     "",
@@ -80,7 +72,7 @@ NAVIGATION_TARGETS = (
 
 def is_free_model(model: str | None) -> bool:
     normalized = str(model or "").strip().lower()
-    return normalized == LOCAL_COSTPILOT_MODEL.lower() or is_remote_free_model(normalized)
+    return normalized == LOCAL_COSTPILOT_MODEL.lower()
 
 
 class ManagerChatError(RuntimeError):
@@ -128,12 +120,10 @@ class ManagerChatService:
         self,
         workspace: Any,
         pipeline: Any,
-        backend: HermesBackend,
         gui_state_provider: Callable[[], dict[str, Any]] | None = None,
     ):
         self.workspace = workspace
         self.pipeline = pipeline
-        self.backend = backend
         self.gui_state_provider = gui_state_provider or (lambda: {})
         self.chat_dir = workspace.root / "Manager Chat"
         self.context_dir = self.chat_dir / "Context Snapshots"
@@ -207,7 +197,7 @@ class ManagerChatService:
             "orders": ("order", "par", "reorder", "buy", "delivery", "short", "run out"),
             "inventory": ("inventory", "stock", "on hand", "count", "remaining", "have left"),
             "pricing": ("price", "increase", "decrease", "cost change", "expensive", "cheaper"),
-            "sales": ("sales", "revenue", "transaction", "ticket", "pace"),
+            "sales": ("sales", "revenue", "transaction", "ticket", "pace", "sold", "sell", "selling"),
             "profit": ("profit", "margin", "cogs", "contribution", "performance"),
             "labor": ("labor", "payroll", "wage", "wages", "hours worked"),
             "invoices": ("invoice", "vendor", "purchase", "spend", "delivery"),
@@ -229,7 +219,7 @@ class ManagerChatService:
             "distributors": ("distributor", "catalog", "confirmation", "supplier integration"),
             "profitability": ("menu profitability", "true food cost", "recommended price", "pricing decision"),
             "savings": ("savings", "value delivered", "time saved", "return on investment"),
-            "margin_memory": ("marginmemory", "margin memory", "decision memory", "manager decision", "override reason", "past decision"),
+            "margin_memory": ("marginmemory", "margin memory", "decision memory", "manager decision", "past decision", "decision outcome", "manager override", "manager choice", "decision was", "decision", "manager made"),
             "auto_upload": (
                 "auto upload", "automatic upload", "upload folder", "spreadsheet",
                 "workbook", "excel file", "file import", "stuck in approval",
@@ -423,6 +413,23 @@ class ManagerChatService:
                 """SELECT cost_id,cost_date,category,description,amount FROM operating_costs
                    ORDER BY cost_date DESC,cost_id DESC LIMIT 80"""
             )
+
+            # Add item-level POS sales data for "what did we sell most" questions
+            if "pos" in intents or "sales" in intents:
+                try:
+                    context["pos_item_sales_summary"] = self._query_rows(
+                        """SELECT menu_item_name,
+                                  COUNT(*) AS transaction_count,
+                                  SUM(CAST(quantity AS REAL)) AS total_quantity,
+                                  ROUND(SUM(CAST(net_sales AS REAL)), 2) AS total_net_sales
+                           FROM pos_sales_lines
+                           WHERE business_date >= date('now', '-60 days')
+                           GROUP BY menu_item_name
+                           ORDER BY total_quantity DESC, total_net_sales DESC
+                           LIMIT 50"""
+                    )
+                except Exception:
+                    pass
 
         if "usage" in intents or "inventory" in intents or "orders" in intents:
             context["monthly_item_usage"] = self._query_rows(
@@ -1281,42 +1288,44 @@ RESTAURANT_CONTEXT_JSON:
                     validation_notes=[f"Local model response was rejected: {exc}"],
                 )
 
-        prompt = self._prompt(question, context, history)
-
-        log_path = Path(self.log_dir) / f"manager_chat_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.log"
+        # Only the local CostPilot runtime is supported. When it fails, fall back
+        # to a deterministic evidence summary computed directly from SQLite.
         try:
-            completed = self.backend.run(
-                [
-                    "chat", "-p", profile,
-                    "--provider", provider,
-                    "--model", model,
-                    "--toolsets", "skills",
-                    "-s", "restaurant-manager-assistant",
-                    "-q", prompt,
-                ],
+            answer, sources, navigation, validation_notes = self._ask_local(
+                question,
+                context,
+                history,
                 timeout=int(timeout),
             )
-            raw = (completed.stdout or "") + ("\nSTDERR:\n" + completed.stderr if completed.stderr else "")
-            log_path.write_text(raw, encoding="utf-8")
-            answer = strip_ansi(completed.stdout)
-            if completed.returncode != 0 or not answer:
-                raise ManagerChatError(
-                    strip_ansi(completed.stderr) or f"Assistant service exited with code {completed.returncode}."
-                )
-            sources = self.sources_for_answer(answer, context)
-            if not sources:
-                sources = self.default_sources(context)
-                if sources:
-                    answer = answer.rstrip() + "\n\nSources used: " + ", ".join(f"[source:{row['evidence_id']}]" for row in sources)
             self.save_message(session_id, "assistant", answer, str(context_path))
-            return ChatAnswer(answer, session_id, str(context_path), provider, model, False, sources)
+            return ChatAnswer(
+                answer=answer,
+                session_id=session_id,
+                context_path=str(context_path),
+                provider="local",
+                model=LOCAL_COSTPILOT_MODEL,
+                used_local_fallback=False,
+                sources=sources,
+                navigation=navigation,
+                validation_notes=validation_notes,
+            )
         except Exception as exc:
             if not local_fallback:
                 raise ManagerChatError(str(exc)) from exc
             answer = self.local_answer(question, context, failure=str(exc))
             sources = self.sources_for_answer(answer, context) or self.default_sources(context)
             self.save_message(session_id, "assistant", answer, str(context_path))
-            return ChatAnswer(answer, session_id, str(context_path), provider, model, True, sources)
+            return ChatAnswer(
+                answer=answer,
+                session_id=session_id,
+                context_path=str(context_path),
+                provider="deterministic",
+                model="computed-evidence-summary",
+                used_local_fallback=True,
+                sources=sources,
+                navigation=None,
+                validation_notes=[f"Local CostPilot response was rejected: {exc}"],
+            )
 
     # ---------- deterministic fallback ----------
     def local_answer(self, question: str, context: dict[str, Any], failure: str = "") -> str:
@@ -1411,6 +1420,35 @@ RESTAURANT_CONTEXT_JSON:
             lines.append(f"There are {len(rows)} recorded price alert(s) in the supplied context [price_alerts].")
             for row in rows[:12]:
                 lines.append(f"• {row.get('item_description')}: {row.get('previous_price')} → {row.get('unit_price')} ({row.get('price_change_percent')}%)")
+        elif "sales" in intents or "pos" in intents:
+            item_sales = context.get("pos_item_sales_summary") or []
+            period_sales = context.get("recent_sales_periods") or []
+            total_sales = sum(float(r.get("net_sales") or 0) for r in period_sales)
+            lines.append(f"Recent net sales total ${total_sales:,.2f} across {len(period_sales)} period(s) [recent_sales_periods].")
+            if item_sales:
+                lines.append(f"Top-selling items by quantity [pos_item_sales_summary]:")
+                for row in item_sales[:12]:
+                    lines.append(
+                        f"• {row.get('menu_item_name')}: {float(row.get('total_quantity') or 0):,.0f} units sold across {int(row.get('transaction_count') or 0)} transactions, ${float(row.get('total_net_sales') or 0):,.2f} net sales"
+                    )
+            else:
+                lines.append("No item-level POS sales are available. Import a POS sales report to see top-selling items.")
+
+        elif "margin_memory" in intents:
+            decisions = context.get("recent_margin_memory_decisions") or []
+            mm_summary = context.get("margin_memory_summary") or {}
+            correct = int(mm_summary.get("evaluated") or 0)
+            total = int(mm_summary.get("total") or 0)
+            lines.append(f"Margin memory has recorded {total} manager decision(s); {correct} have been evaluated [margin_memory_summary].")
+            if decisions:
+                lines.append("Recent manager decisions:")
+                for row in decisions[:12]:
+                    lines.append(
+                        f"• {row.get('decision_time') or 'N/A'} {row.get('subject_name') or 'item'}: manager override {row.get('override_amount')} vs recommendation {row.get('recommended_action_json', '')[:60]} [{row.get('reason_code')}] → status: {row.get('status') or 'pending'}"
+                    )
+            else:
+                lines.append("No margin memory decisions are available yet.")
+
         elif "inventory" in intents or "usage" in intents:
             rows = context.get("question_matching_items") or context.get("inventory_estimates") or []
             if not rows:
@@ -1443,6 +1481,8 @@ RESTAURANT_CONTEXT_JSON:
             "distributors": {"distributor_profiles", "distributor_exchanges"},
             "profitability": {"menu_profitability", "advanced_usage_variance"},
             "savings": {"savings_dashboard", "phase3_summary"},
+            "sales": {"pos_item_sales_summary", "recent_sales_periods", "dashboard_summary"},
+            "margin_memory": {"recent_margin_memory_decisions", "margin_memory_summary"},
         }
         sections = set().union(*(wanted_sections.get(intent, set()) for intent in intents)) or {"dashboard_summary"}
         for evidence_id, source in evidence.items():

@@ -9,8 +9,9 @@ The pipeline deliberately separates extraction from validation:
         -> deterministic validation
         -> auto-commit or human review queue
 
-RapidOCR is the primary scan engine. Tesseract is a local fallback, while
-Hermes remains an optional compatibility fallback for unusual layouts.
+RapidOCR is the primary scan engine. Tesseract is a fully-local fallback. All
+extraction, OCR, and structuring runs entirely on the local machine — no
+external AI provider or cloud service is required.
 
 It supports multiple restaurant workspaces. Each workspace owns its own settings,
 SQLite database, source archive, review queue, and exports.
@@ -43,12 +44,8 @@ except ImportError:  # pragma: no cover - installer supplies it.
 
 from excel_io import write_table_as
 
-from hermes_backend import (
-    command_for,
-    find_hermes_executable,
-    hermes_failure_detail,
-    hermes_subprocess_environment,
-)
+# Hermes Agent is no longer required. All OCR and extraction use
+# RapidOCR (ONNX) and Tesseract, both fully local engines.
 from inventory_planning import (
     InventoryPlanningService,
     infer_count_conversion,
@@ -57,6 +54,7 @@ from inventory_planning import (
 from operational_controls import OperationalControlsService
 from phase2_features import Phase2Service
 from phase3_features import Phase3Service
+from recipe_costing import RecipeCostingService
 from margin_memory import MarginMemoryService
 from review_copilot import ReviewCopilotService
 
@@ -74,22 +72,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "require_review_for_unrecognized_vendors": False,
     "auto_learn_validated_vendors": True,
     "extraction_mode": "local_first",
-    "hermes_required": False,
-    "auto_install_hermes": False,
-    "hermes_executable": "hermes",
-    "hermes_profile": "restaurant-cost-controller",
-    "hermes_timeout_seconds": 360,
-    "hermes_toolsets": "skills",
-    "use_hermes_for_text_structuring": False,
     "auto_install_scan_engine": True,
     "local_ocr_enabled": True,
     "rapidocr_enabled": True,
     "local_ocr_timeout_seconds": 120,
-    "hermes_managed_ocr_fallback_enabled": True,
-    "hermes_yolo_for_document_jobs": True,
     "pdf_render_dpi": 200,
     "max_pdf_pages": 30,
-    "save_hermes_raw_output": True,
     "known_vendors": [],
     "forecast_history_months": 3,
     "default_lead_time_days": 2.0,
@@ -566,17 +554,15 @@ class RestaurantWorkspace:
         return destination
 
 
-class HermesExtractor:
-    """Artifact-first invoice extraction.
+class LocalExtractor:
+    """Fully-local invoice extraction.
 
     Text PDFs are read locally with PyMuPDF, which is deterministic and does not
-    perform OCR. Hermes optionally structures that extracted text. Image-only or
-    scanned documents are handed to Hermes as a local document job: Hermes loads
-    its bundled ``ocr-and-documents`` skill, uses terminal tools to extract/OCR the
-    file, and writes both raw text and canonical JSON to exact artifact paths.
-
-    This deliberately avoids the nonexistent ``hermes chat --image`` interface.
+    perform OCR. Local deterministic parsing structures that text. Image-only or
+    scanned documents are processed with RapidOCR (primary) or Tesseract (fallback),
+    both running entirely on the local machine with no external service dependency.
     """
+
 
     HEADER_FIELDS = (
         "vendor", "invoice_number", "invoice_date", "subtotal", "fees",
@@ -589,16 +575,6 @@ class HermesExtractor:
         self.logs_dir = logs_dir
         if self.logs_dir:
             self.logs_dir.mkdir(parents=True, exist_ok=True)
-            self.artifacts_dir = self.logs_dir.parent / "Extraction Artifacts"
-        else:
-            self.artifacts_dir = Path.cwd() / "Extraction Artifacts"
-        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-    def executable(self) -> str:
-        return find_hermes_executable(str(self.settings.get("hermes_executable", "hermes")))
-
-    def available(self) -> bool:
-        return bool(self.executable())
 
     @staticmethod
     def _confidence_value(value: Any) -> float:
@@ -688,118 +664,6 @@ class HermesExtractor:
             item["confidence"] = round(item_conf or global_conf, 4)
         payload["extraction_confidence"] = round(global_conf, 4)
         return global_conf
-
-    def _artifact_paths(self, source: Path) -> tuple[Path, Path]:
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        base = f"{safe_filename(source.stem)}_{stamp}"
-        return self.artifacts_dir / f"{base}.txt", self.artifacts_dir / f"{base}.json"
-
-    def _log_run(self, label: str, args: Sequence[str], completed: subprocess.CompletedProcess[str] | None, error: str = "") -> Path | None:
-        if not self.logs_dir or not bool(self.settings.get("save_hermes_raw_output", True)):
-            return None
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        path = self.logs_dir / f"hermes_{safe_filename(label)}_{stamp}.log"
-        safe_args = list(args)
-        if "-q" in safe_args:
-            q_index = safe_args.index("-q")
-            if q_index + 1 < len(safe_args):
-                safe_args[q_index + 1] = f"<prompt omitted; {len(safe_args[q_index + 1])} characters>"
-        content = ["COMMAND:", json.dumps(safe_args, indent=2), ""]
-        if completed is not None:
-            content.extend([f"RETURN CODE: {completed.returncode}", "", "STDOUT:", completed.stdout or "", "", "STDERR:", completed.stderr or ""])
-        if error:
-            content.extend(["", "ERROR:", error])
-        path.write_text("\n".join(content), encoding="utf-8")
-        return path
-
-    def _execute_hermes(self, args: list[str], *, label: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        executable = self.executable()
-        timeout = int(self.settings.get("hermes_timeout_seconds", 360))
-        if not executable:
-            raise ExtractionFailed("Hermes Agent is not installed or the configured executable cannot be found.")
-        try:
-            completed = subprocess.run(
-                command_for(executable, args), capture_output=True, text=True,
-                timeout=timeout, encoding="utf-8", errors="replace",
-                cwd=str(cwd or Path.cwd()),
-                env=hermes_subprocess_environment(),
-            )
-        except subprocess.TimeoutExpired as exc:
-            log = self._log_run(label, args, None, f"Timed out after {timeout} seconds")
-            raise ExtractionFailed(f"Hermes timed out after {timeout} seconds. Log: {log}") from exc
-        except Exception as exc:
-            log = self._log_run(label, args, None, str(exc))
-            raise ExtractionFailed(f"Hermes could not start: {exc}. Log: {log}") from exc
-        log = self._log_run(label, args, completed)
-        provider_failure = hermes_failure_detail(completed.stdout, completed.stderr)
-        if completed.returncode != 0 or provider_failure:
-            detail = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", completed.stderr or completed.stdout or "").strip()
-            reason = provider_failure or detail[-1400:] or "no error text"
-            raise ExtractionFailed(
-                f"Hermes extraction failed (exit code {completed.returncode}): {reason}. Log: {log}"
-            )
-        return completed
-
-    def _run_hermes_text(self, prompt: str, *, label: str) -> dict[str, Any]:
-        profile = str(self.settings.get("hermes_profile", "restaurant-cost-controller"))
-        args = ["chat", "-p", profile, "--toolsets", "skills", "-s", "restaurant-invoice-extraction", "-q", prompt]
-        completed = self._execute_hermes(args, label=label)
-        payload = self._extract_json_object(completed.stdout)
-        self._normalize_payload_confidence(payload)
-        return payload
-
-    def _run_hermes_document_job(self, source: Path, *, label: str) -> tuple[dict[str, Any], str]:
-        raw_path, json_path = self._artifact_paths(source)
-        profile = str(self.settings.get("hermes_profile", "restaurant-cost-controller"))
-        allow_install = bool(self.settings.get("auto_install_scan_engine", True))
-        install_instruction = (
-            "If marker-pdf is missing, install it automatically, then continue."
-            if allow_install else
-            "Do not install packages; report that scan support is unavailable."
-        )
-        prompt = f"""You are running a controlled local invoice extraction job.
-
-SOURCE_FILE = {json.dumps(str(source.resolve()))}
-RAW_TEXT_OUTPUT = {json.dumps(str(raw_path.resolve()))}
-CANONICAL_JSON_OUTPUT = {json.dumps(str(json_path.resolve()))}
-
-Use terminal tools and the preloaded ocr-and-documents skill. Follow this exact procedure:
-1. Confirm SOURCE_FILE exists.
-2. For a PDF, first extract existing text with PyMuPDF. If the document is image-only or unusable, use the skill's marker-pdf extraction helper for OCR.
-3. For a native image, use the document or vision tools available to extract all visible text.
-4. {install_instruction}
-5. Write the complete extracted text or Markdown to RAW_TEXT_OUTPUT.
-6. Parse that text into canonical invoice JSON and write one JSON object to CANONICAL_JSON_OUTPUT.
-7. Verify both files exist and the JSON parses before finishing.
-8. Final chat response: DONE or ERROR only. The files are authoritative.
-
-JSON schema:
-{{"vendor":"","invoice_number":"","invoice_date":"YYYY-MM-DD or empty","subtotal":"","fees":"","tax":"","credits":"","total":"","currency":"USD","document_type":"scanned_pdf|image|unknown","layout_recognized":true,"extraction_confidence":0.0,"extraction_notes":[],"items":[{{"sku":"","description":"","category":"Unclassified","quantity":"","unit":"","unit_price":"","line_total":"","confidence":0.0}}]}}
-Do not write to the restaurant database or spreadsheet."""
-        args: list[str] = []
-        if bool(self.settings.get("hermes_yolo_for_document_jobs", True)):
-            args.append("--yolo")
-        args.extend([
-            "chat", "-p", profile, "--toolsets", "terminal,skills",
-            "-s", "ocr-and-documents", "-s", "restaurant-invoice-extraction", "-q", prompt,
-        ])
-        completed = self._execute_hermes(args, label=label, cwd=source.parent)
-        raw_text = raw_path.read_text(encoding="utf-8", errors="replace") if raw_path.exists() else ""
-        if json_path.exists():
-            try:
-                payload = json.loads(json_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                raise ExtractionFailed(f"Hermes created invalid canonical JSON at {json_path}: {exc}") from exc
-        else:
-            payload = self._extract_json_object(completed.stdout)
-            payload.setdefault("extraction_notes", []).append("Hermes returned JSON in stdout instead of the required artifact file.")
-        if not isinstance(payload, dict):
-            raise ExtractionFailed("Hermes document job did not produce a JSON object.")
-        payload["_raw_text"] = raw_text
-        payload["_raw_text_path"] = str(raw_path)
-        payload["_canonical_artifact_path"] = str(json_path)
-        self._normalize_payload_confidence(payload)
-        return payload, raw_text
 
     def _find_labeled_value(self, raw_text: str, labels: Sequence[str], value_pattern: str) -> str:
         for label in labels:
@@ -902,31 +766,8 @@ Do not write to the restaurant database or spreadsheet."""
             item["confidence"] = max(float(item.get("confidence", 0)), min(confidence, 0.985))
         return payload, confidence
 
-    def _text_prompt(self, source: Path, raw_text: str) -> str:
-        return f"""You are the structured invoice parser for a restaurant cost-control application.
-The actual PDF text has already been extracted and is included below. Do not access a file path and do not use OCR.
-Return exactly one valid JSON object with no Markdown or explanation.
-Schema:
-{{"vendor":"","invoice_number":"","invoice_date":"YYYY-MM-DD or empty","subtotal":"","fees":"","tax":"","credits":"","total":"","currency":"USD","document_type":"text_pdf","layout_recognized":true,"extraction_confidence":0.0,"extraction_notes":[],"items":[{{"sku":"","description":"","category":"Unclassified","quantity":"","unit":"","unit_price":"","line_total":"","confidence":0.0}}]}}
-Rules: preserve every item; absent values stay empty; credits are positive; confidence is 0 to 1; verify arithmetic.
-SOURCE NAME: {source.name}
-EXTRACTED PDF TEXT:
-{raw_text[:60000]}"""
-
-    def _best_payload(self, local: dict[str, Any], hermes: dict[str, Any]) -> tuple[dict[str, Any], str]:
-        local_score = self._quality_score(local)
-        hermes_score = self._quality_score(hermes)
-        local_items = len(local.get("items") or [])
-        hermes_items = len(hermes.get("items") or [])
-        if hermes_score >= local_score and hermes_items >= local_items:
-            hermes["_raw_text"] = local.get("_raw_text", "")
-            hermes.setdefault("extraction_notes", []).append("Hermes structured text extracted by PyMuPDF.")
-            return hermes, "pymupdf+hermes-structure"
-        local.setdefault("extraction_notes", []).append("Local deterministic parse was more complete than the Hermes response.")
-        return local, "pymupdf+local-parser"
-
-    def _tesseract_executable(self) -> str:
-        """Find OCR tooling installed or provisioned by the Hermes document skill."""
+    def _find_tesseract(self) -> str:
+        """Find a locally installed Tesseract executable."""
         configured = str(self.settings.get("tesseract_executable") or "").strip()
         candidates = [configured, shutil.which("tesseract") or ""]
         if os.name == "nt":
@@ -947,7 +788,7 @@ EXTRACTED PDF TEXT:
             raise ExtractionFailed("Local OCR is disabled.")
 
         timeout = min(300, max(30, int(self.settings.get("local_ocr_timeout_seconds", 120))))
-        with tempfile.TemporaryDirectory(prefix="marginmise-hermes-ocr-") as temp_name:
+        with tempfile.TemporaryDirectory(prefix="marginmise-local-ocr-") as temp_name:
             temp = Path(temp_name)
             images: list[Path] = []
             if source.suffix.lower() == ".pdf":
@@ -1006,7 +847,7 @@ EXTRACTED PDF TEXT:
                 except Exception as exc:
                     failures.append(f"RapidOCR: {exc}")
 
-            executable = self._tesseract_executable()
+            executable = self._find_tesseract()
             if not executable:
                 detail = "; ".join(failures) or "no local engine was available"
                 raise ExtractionFailed(f"Local OCR failed: {detail}; Tesseract is not installed.")
@@ -1041,7 +882,7 @@ EXTRACTED PDF TEXT:
             payload.setdefault("extraction_notes", []).extend(failures)
         return payload, confidence, "tesseract+local-parser"
 
-    def _hermes_managed_ocr_fallback(self, source: Path) -> tuple[dict[str, Any], float, str]:
+    def _tesseract_fallback(self, source: Path) -> tuple[dict[str, Any], float, str]:
         """Backward-compatible alias for older settings and callers."""
         return self._local_ocr_fallback(source)
 
@@ -1058,21 +899,8 @@ EXTRACTED PDF TEXT:
         raw_text = "\n\n".join(f"--- PAGE {i+1} ---\n{page_text}" for i, page_text in enumerate(page_texts)).strip()
         meaningful_pages = sum(self._has_meaningful_text(page_text) for page_text in page_texts)
         if meaningful_pages == len(page_texts):
-            local, _local_conf = self._parse_text_locally(raw_text, source)
-            method = "pymupdf+local-parser"
-            if bool(self.settings.get("use_hermes_for_text_structuring", False)) and self.available():
-                try:
-                    hermes = self._run_hermes_text(self._text_prompt(source, raw_text), label=f"{source.stem}_text_structure")
-                    hermes["source_file"] = source.name
-                    hermes["source_link"] = str(source.resolve())
-                    payload, method = self._best_payload(local, hermes)
-                except Exception as exc:
-                    local.setdefault("extraction_notes", []).append(f"Hermes text structuring failed; local verified parse used: {exc}")
-                    payload = local
-                    method = "pymupdf+local-parser-fallback"
-            else:
-                payload = local
-            return payload, self._normalize_payload_confidence(payload), method
+            payload, confidence = self._parse_text_locally(raw_text, source)
+            return payload, confidence, "pymupdf+local-parser"
         try:
             payload, confidence, method = self._local_ocr_fallback(source)
             payload["document_type"] = "scanned_pdf" if meaningful_pages == 0 else "mixed_pdf"
@@ -1085,24 +913,6 @@ EXTRACTED PDF TEXT:
                     f"Some pages needed OCR, but local OCR failed: {local_exc}"
                 )
                 return local, min(confidence, 0.78), "partial-pymupdf-review"
-            if self.available():
-                try:
-                    payload, raw_ocr = self._run_hermes_document_job(
-                        source, label=f"{source.stem}_document_job"
-                    )
-                    payload["source_file"] = source.name
-                    payload["source_link"] = str(source.resolve())
-                    payload["document_type"] = "scanned_pdf"
-                    payload["_raw_text"] = raw_ocr or payload.get("_raw_text", "")
-                    payload.setdefault("extraction_notes", []).append(
-                        f"Local OCR failed before the optional Hermes fallback: {local_exc}"
-                    )
-                    return payload, self._normalize_payload_confidence(payload), "hermes-ocr-artifact-fallback"
-                except Exception as hermes_exc:
-                    raise ExtractionFailed(
-                        f"The PDF has no usable text layer. Local OCR failed: {local_exc}; "
-                        f"optional Hermes fallback failed: {hermes_exc}"
-                    ) from local_exc
             raise ExtractionFailed(
                 f"The PDF has no usable text layer and local OCR failed: {local_exc}"
             ) from local_exc
@@ -1112,47 +922,8 @@ EXTRACTED PDF TEXT:
         if suffix == ".pdf":
             return self._extract_pdf(source)
         if suffix in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}:
-            try:
-                return self._local_ocr_fallback(source)
-            except Exception as local_exc:
-                if not self.available():
-                    raise
-                payload, extracted_text = self._run_hermes_document_job(
-                    source, label=f"{source.stem}_image_job"
-                )
-                payload["source_file"] = source.name
-                payload["source_link"] = str(source.resolve())
-                payload["document_type"] = "image"
-                payload["_raw_text"] = extracted_text
-                payload.setdefault("extraction_notes", []).append(
-                    f"Local OCR failed before the optional Hermes fallback: {local_exc}"
-                )
-                return payload, self._normalize_payload_confidence(payload), "hermes-ocr-artifact-fallback"
+            return self._local_ocr_fallback(source)
         raise ExtractionFailed(f"Unsupported source type: {source.suffix}")
-
-    def _extract_json_object(self, output: str) -> dict[str, Any]:
-        cleaned = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", output or "").strip()
-        try:
-            parsed = json.loads(cleaned)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-        decoder = json.JSONDecoder()
-        candidates: list[dict[str, Any]] = []
-        for index, char in enumerate(cleaned):
-            if char != "{":
-                continue
-            try:
-                parsed, _ = decoder.raw_decode(cleaned[index:])
-                if isinstance(parsed, dict):
-                    candidates.append(parsed)
-            except json.JSONDecodeError:
-                continue
-        if candidates:
-            return candidates[-1]
-        excerpt = cleaned[-1000:] if cleaned else "<empty output>"
-        raise ExtractionFailed(f"Hermes did not return valid invoice JSON. Output ended with: {excerpt}")
 
 class InvoiceExtractor:
     """Route documents through local extraction, then attach recognition state."""
@@ -1160,7 +931,7 @@ class InvoiceExtractor:
     def __init__(self, workspace: RestaurantWorkspace):
         self.workspace = workspace
         self.settings = workspace.load_settings()
-        self.hermes = HermesExtractor(self.settings, workspace.folders["logs"])
+        self.local = LocalExtractor(self.settings, workspace.folders["logs"])
 
     def extract(self, source: Path) -> ExtractionResult:
         suffix = source.suffix.lower()
@@ -1168,12 +939,12 @@ class InvoiceExtractor:
             data = json.loads(source.read_text(encoding="utf-8"))
             vendor = str(data.get("vendor") or "")
             recognized, parser_name = self.workspace.vendor_recognition(vendor)
-            confidence = HermesExtractor._confidence_value(data.get("extraction_confidence")) or 0.99
+            confidence = LocalExtractor._confidence_value(data.get("extraction_confidence")) or 0.99
             return ExtractionResult(data, "json", confidence, recognized, parser_name)
         if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}:
             raise ExtractionFailed(f"Unsupported source type: {source.suffix}")
 
-        data, confidence, method = self.hermes.extract(source)
+        data, confidence, method = self.local.extract(source)
         vendor = str(data.get("vendor") or "")
         recognized, parser_name = self.workspace.vendor_recognition(vendor)
         warnings: list[str] = []
@@ -1315,6 +1086,7 @@ class InvoicePipeline:
         self.controls = OperationalControlsService(workspace)
         self.phase2 = Phase2Service(workspace, self.planning, self.controls)
         self.phase3 = Phase3Service(workspace, self.planning, self.controls, self.phase2)
+        self.recipe_costing = RecipeCostingService(workspace)
         self.margin_memory = MarginMemoryService(workspace, self.planning, self.controls)
         self.review_copilot = ReviewCopilotService(workspace, self, self.controls)
 
@@ -1547,7 +1319,7 @@ class InvoicePipeline:
         )
         try:
             canonical = self.validator.canonicalize(recovered, source)
-            recovered_quality = self.extractor.hermes._quality_score(canonical)
+            recovered_quality = self.extractor.local._quality_score(canonical)
             confidence = max(float(row["extraction_confidence"] or 0.0), float(recovered_quality))
             findings = self.validator.validate(canonical, 1.0 if explicit_approval else confidence)
         except Exception as exc:
@@ -1672,7 +1444,7 @@ class InvoicePipeline:
             if bool(self.settings.get("auto_recover_invoice_headers", True)):
                 recovered_data, recovery = self.recover_missing_invoice_headers(extraction.data, source)
                 if recovery["recovered_fields"]:
-                    extraction.confidence = max(extraction.confidence, self.extractor.hermes._quality_score(recovered_data))
+                    extraction.confidence = max(extraction.confidence, self.extractor.local._quality_score(recovered_data))
                     result.extraction_confidence = extraction.confidence
                     result.warnings.append("Recovered missing header field(s): " + ", ".join(recovery["recovered_fields"]))
             else:
@@ -1697,10 +1469,10 @@ class InvoicePipeline:
                 "_extraction_error": str(exc),
                 "extraction_notes": [str(exc)],
             }
-            result.extraction_method = "hermes-extraction-failed"
+            result.extraction_method = "local-extraction-failed"
             result.extraction_confidence = 0.0
             result.errors.append(str(exc))
-            extraction = ExtractionResult(canonical, "hermes-extraction-failed", 0.0, False, "generic")
+            extraction = ExtractionResult(canonical, "local-extraction-failed", 0.0, False, "generic")
             if bool(self.settings.get("auto_recover_invoice_headers", True)):
                 canonical, recovery = self.recover_missing_invoice_headers(canonical, source)
                 if recovery["recovered_fields"]:

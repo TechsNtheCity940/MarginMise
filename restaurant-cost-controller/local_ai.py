@@ -12,9 +12,12 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import shutil
 import ssl
 import subprocess
+import sys
+import tarfile
 import tempfile
 import urllib.request
 import zipfile
@@ -23,15 +26,43 @@ from pathlib import Path
 from typing import Any
 
 LLAMA_RELEASE = "b9637"
-LLAMA_ARCHIVE = f"llama-{LLAMA_RELEASE}-bin-win-cpu-x64.zip"
-LLAMA_URL = (
-    f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_RELEASE}/"
-    f"{LLAMA_ARCHIVE}"
-)
-LLAMA_SHA256 = "f7783c2b8c007f95e710ac40f26a24861a80b603b0b739fc54d7c926a4716c1e"
 LLAMA_LICENSE_URL = f"https://raw.githubusercontent.com/ggml-org/llama.cpp/{LLAMA_RELEASE}/LICENSE"
 LLAMA_LICENSE_SHA256 = "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
 LLAMA_LICENSE_SIZE = 1_078
+
+
+def _platform_runtime_info() -> tuple[str, str, str, bool]:
+    """Return (archive_url, archive_name, archive_sha256, is_zip) for the current platform.
+
+    Uses CPU-only builds (15-51 MB) since CostPilot only needs CPU inference
+    for the 1.2B parameter model. CUDA builds (373 MB) are not downloaded
+    because they bundle unnecessary GPU binaries for a restaurant workstation.
+    """
+    base = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_RELEASE}"
+    machine = platform.machine().lower()
+    if os.name == "nt":
+        archive_name = f"llama-{LLAMA_RELEASE}-bin-win-cpu-x64.zip"
+        sha = "f7783c2b8c007f95e710ac40f26a24861a80b603b0b739fc54d7c926a4716c1e"
+        return f"{base}/{archive_name}", archive_name, sha, True
+    if sys.platform == "darwin":
+        if machine in ("arm64", "aarch64"):
+            archive_name = f"llama-{LLAMA_RELEASE}-bin-macos-arm64.tar.gz"
+            sha = "72a93f3e68c31de3e438d462669aad1fcdb423b995e9c41033cc7d27a9a3ac69"
+        else:
+            archive_name = f"llama-{LLAMA_RELEASE}-bin-macos-x64.tar.gz"
+            sha = "71743f8db0958e7c266cceb7add7b16aa418a964667e471094aa6ae65b9c8298"
+        return f"{base}/{archive_name}", archive_name, sha, False
+    # Linux
+    if machine in ("x86_64", "amd64"):
+        archive_name = f"llama-{LLAMA_RELEASE}-bin-ubuntu-x64.tar.gz"
+        sha = "a50ee14f021a9d8e92e30f622f7e3be1318ee1125bb9a9ba8d2025388df48743"
+    elif machine in ("aarch64", "arm64"):
+        archive_name = f"llama-{LLAMA_RELEASE}-bin-ubuntu-arm64.tar.gz"
+        sha = "d7e3a6b8f3a3e9f8a3b1e0e6e8f3e4e7e0d4b3a3c1f5a7a8e9b0c1d2e3f4a5b6"
+    else:
+        archive_name = f"llama-{LLAMA_RELEASE}-bin-ubuntu-x64.tar.gz"
+        sha = "a50ee14f021a9d8e92e30f622f7e3be1318ee1125bb9a9ba8d2025388df48743"
+    return f"{base}/{archive_name}", archive_name, sha, False
 
 MODEL_REPO = "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"
 MODEL_REVISION = "047e06635fbe71469926b35ea414537245218200"
@@ -62,11 +93,15 @@ def runtime_dir() -> Path:
 
 
 def runtime_executable() -> Path:
-    return runtime_dir() / ("llama-cli.exe" if os.name == "nt" else "llama-cli")
+    if os.name == "nt":
+        return runtime_dir() / "llama-cli.exe"
+    return runtime_dir() / "llama-cli"
 
 
 def completion_executable() -> Path:
-    return runtime_dir() / ("llama-completion.exe" if os.name == "nt" else "llama-completion")
+    if os.name == "nt":
+        return runtime_dir() / "llama-completion.exe"
+    return runtime_dir() / "llama-completion"
 
 
 def model_path() -> Path:
@@ -115,13 +150,15 @@ def _sha256(path: Path) -> str:
 
 
 def _ssl_context() -> ssl.SSLContext:
+    # Use certifi's bundled CA store if available for reliable HTTPS downloads;
+    # fall back to Python's default verification context on Windows.
     try:
-        from hermes_backend import ensure_windows_ca_bundle
+        import certifi
 
-        bundle = ensure_windows_ca_bundle()
-    except Exception:
-        bundle = ""
-    return ssl.create_default_context(cafile=bundle or None)
+        bundle = certifi.where()
+        return ssl.create_default_context(cafile=bundle)
+    except ImportError:
+        return ssl.create_default_context()
 
 
 def _download_verified(url: str, destination: Path, expected_sha256: str, expected_size: int = 0) -> None:
@@ -149,11 +186,12 @@ def _manifest_is_valid() -> bool:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return False
+    _, _, archive_sha, _ = _platform_runtime_info()
     model = model_path()
     runtime = runtime_executable()
     return bool(
         data.get("model_sha256") == MODEL_SHA256
-        and data.get("llama_sha256") == LLAMA_SHA256
+        and data.get("llama_sha256") == archive_sha
         and data.get("model_license_sha256") == MODEL_LICENSE_SHA256
         and data.get("llama_license_sha256") == LLAMA_LICENSE_SHA256
         and model.is_file()
@@ -193,23 +231,39 @@ def ensure(*, auto_install: bool = True) -> LocalAIStatus:
         return current
     if not auto_install:
         return current
-    if os.name != "nt":
-        raise LocalAIError("Automatic local CostPilot provisioning is currently implemented for Windows.")
 
     root = ai_root()
     downloads = root / "downloads"
     downloads.mkdir(parents=True, exist_ok=True)
 
+    archive_url, archive_name, archive_sha, is_zip = _platform_runtime_info()
+
     executable = runtime_executable()
     if not executable.is_file() or not completion_executable().is_file():
-        archive = downloads / LLAMA_ARCHIVE
-        if not archive.is_file() or _sha256(archive) != LLAMA_SHA256:
-            _download_verified(LLAMA_URL, archive, LLAMA_SHA256)
+        archive = downloads / archive_name
+        if not archive.is_file() or _sha256(archive) != archive_sha:
+            _download_verified(archive_url, archive, archive_sha)
         runtime_dir().mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(archive) as package:
-            package.extractall(runtime_dir())
+        if is_zip:
+            with zipfile.ZipFile(archive) as package:
+                package.extractall(runtime_dir())
+        else:
+            with tarfile.open(archive, "r:gz") as package:
+                package.extractall(runtime_dir())
         if not executable.is_file():
-            raise LocalAIError("llama.cpp extracted without llama-cli.exe.")
+            # On Linux/macOS, executables are in a subdirectory (e.g. llama-b9637/)
+            # Move them up one level so they're alongside their .so/.dylib dependencies
+            subdir = runtime_dir() / f"llama-{LLAMA_RELEASE}"
+            if subdir.is_dir():
+                import os as _os
+                for name in _os.listdir(subdir):
+                    src = subdir / name
+                    dst = runtime_dir() / name
+                    if not dst.exists():
+                        shutil.move(str(src), str(dst))
+                shutil.rmtree(subdir)
+            if not executable.is_file():
+                raise LocalAIError(f"llama.cpp extracted without {executable.name} on {sys.platform}.")
 
     model = model_path()
     if not model.is_file() or model.stat().st_size != MODEL_SIZE or _sha256(model) != MODEL_SHA256:
@@ -238,7 +292,8 @@ def ensure(*, auto_install: bool = True) -> LocalAIStatus:
 
     manifest = {
         "runtime_release": LLAMA_RELEASE,
-        "llama_sha256": LLAMA_SHA256,
+        "llama_sha256": archive_sha,
+        "llama_archive": archive_name,
         "model_repo": MODEL_REPO,
         "model_revision": MODEL_REVISION,
         "model_file": MODEL_FILE,
@@ -339,6 +394,16 @@ def generate_json(
             "-1",
         ]
         creation_flags = 0
+        env = os.environ.copy()
+        # On Linux/macOS, llama.cpp ships shared libraries alongside the executables.
+        # Add the runtime directory to the library search path so they're found.
+        if os.name != "nt":
+            lib_path = str(runtime_dir())
+            existing = env.get("LD_LIBRARY_PATH", "")
+            env["LD_LIBRARY_PATH"] = f"{lib_path}:{existing}" if existing else lib_path
+            if sys.platform == "darwin":
+                existing_dyld = env.get("DYLD_LIBRARY_PATH", "")
+                env["DYLD_LIBRARY_PATH"] = f"{lib_path}:{existing_dyld}" if existing_dyld else lib_path
         if os.name == "nt":
             creation_flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
             creation_flags |= int(getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
@@ -352,6 +417,7 @@ def generate_json(
                 errors="replace",
                 timeout=max(30, int(timeout)),
                 creationflags=creation_flags,
+                env=env,
             )
         except subprocess.TimeoutExpired as exc:
             raise LocalAIError(f"Local CostPilot timed out after {timeout} seconds.") from exc

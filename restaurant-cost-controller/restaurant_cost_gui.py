@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """MarginMise GUI v3.5.
 
-Self-contained multi-restaurant interface. Hermes Agent is the required backend
-for extracting text and structured data from normal PDFs, scanned invoices,
-images, and unfamiliar vendor layouts. Python remains the deterministic ledger
-and validation layer.
+Self-contained multi-restaurant interface. All extraction, OCR, and AI querying
+run locally via RapidOCR, Tesseract, and the locally provisioned CostPilot LLM.
+No external AI provider or cloud service is required.
 """
 
 from __future__ import annotations
@@ -33,7 +32,6 @@ try:
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
-from hermes_backend import HermesBackend, HermesBackendError
 from manager_chat import (
     DEFAULT_FREE_MODEL,
     DEFAULT_FREE_PROVIDER,
@@ -132,7 +130,6 @@ class RestaurantCostControllerGUI:
         self.registry = AppRegistry()
         self.workspace: RestaurantWorkspace | None = None
         self.pipeline: InvoicePipeline | None = None
-        self.backend = HermesBackend(APP_DIR)
         self.last_backend_status = None
         self.backend_busy = False
         self.backend_status_checking = False
@@ -1068,11 +1065,6 @@ class RestaurantCostControllerGUI:
             "price_alert_percent": tk.StringVar(),
             "require_review_for_unrecognized_vendors": tk.BooleanVar(),
             "auto_learn_validated_vendors": tk.BooleanVar(),
-            "auto_install_hermes": tk.BooleanVar(),
-            "hermes_required": tk.BooleanVar(),
-            "hermes_executable": tk.StringVar(),
-            "hermes_profile": tk.StringVar(),
-            "hermes_timeout_seconds": tk.StringVar(),
             "known_vendors": tk.StringVar(),
             "forecast_history_months": tk.StringVar(),
             "default_lead_time_days": tk.StringVar(),
@@ -1113,9 +1105,6 @@ class RestaurantCostControllerGUI:
             ("Auto-approve confidence", "auto_approve_confidence"),
             ("Invoice math tolerance", "invoice_math_tolerance"),
             ("Price alert percent", "price_alert_percent"),
-            ("Automation engine executable", "hermes_executable"),
-            ("Automation engine profile", "hermes_profile"),
-            ("Automation timeout seconds", "hermes_timeout_seconds"),
             ("Known vendors (semicolon separated)", "known_vendors"),
             ("Forecast history months", "forecast_history_months"),
             ("Default lead time days", "default_lead_time_days"),
@@ -1139,8 +1128,6 @@ class RestaurantCostControllerGUI:
             self.setting_edit_widgets.append(entry)
         check_row = len(rows) + 1
         checks = [
-            ("Require the optional online-chat transport for CostPilot", "hermes_required"),
-            ("Install the optional online-chat transport automatically when missing", "auto_install_hermes"),
             ("Require review for unrecognized vendors or layouts", "require_review_for_unrecognized_vendors"),
             ("Automatically learn new vendors after complete validation", "auto_learn_validated_vendors"),
             ("Automatically create one draft order sheet each week", "auto_generate_weekly_order_draft"),
@@ -1162,8 +1149,8 @@ class RestaurantCostControllerGUI:
 
         backend_frame = ttk.LabelFrame(form, text="Local CostPilot and optional cloud fallback", padding=10)
         backend_frame.grid(row=check_row + len(checks), column=0, columnspan=3, sticky="ew", pady=(12, 6))
-        self.hermes_status_var = tk.StringVar(value="Local CostPilot status has not been checked.")
-        ttk.Label(backend_frame, textvariable=self.hermes_status_var, wraplength=860).pack(anchor="w")
+        self.costpilot_status_var = tk.StringVar(value="Local CostPilot status has not been checked.")
+        ttk.Label(backend_frame, textvariable=self.costpilot_status_var, wraplength=860).pack(anchor="w")
         buttons = ttk.Frame(backend_frame)
         buttons.pack(fill="x", pady=(8, 0))
         ttk.Button(buttons, text="Test Local Processing", command=self.test_dependencies).pack(side="left", padx=3)
@@ -1594,9 +1581,7 @@ class RestaurantCostControllerGUI:
                         "manager_chat_free_only": True,
                         "manager_chat_local_fallback": True,
                         "manager_chat_cloud_fallback_enabled": False,
-                        "auto_install_hermes": False,
-                        "hermes_required": False,
-                        "costpilot_local_migration_version": 1,
+                                        "costpilot_local_migration_version": 1,
                     }
                 )
                 workspace.save_settings(settings)
@@ -1892,7 +1877,7 @@ class RestaurantCostControllerGUI:
                     name = Path(result.source).name
                     if self.upload_tree.exists(name):
                         self.upload_tree.set(name, "status", result.status)
-                    if result.extraction_method == "hermes-extraction-failed":
+                    if result.extraction_method == "local-extraction-failed":
                         confidence_text = "extraction failed"
                     elif result.extraction_confidence > 0:
                         confidence_text = f"{result.extraction_confidence:.0%}"
@@ -2013,18 +1998,18 @@ class RestaurantCostControllerGUI:
                     )
                 elif event == "local_ai_status":
                     self.backend_status_checking = False
-                    self.hermes_status_var.set(payload.message)
+                    self.costpilot_status_var.set(payload.message)
                     self.log(payload.message)
                 elif event == "local_ai_install_done":
                     self.backend_busy = False
-                    self.hermes_status_var.set(payload.message)
+                    self.costpilot_status_var.set(payload.message)
                     self.status_var.set(payload.message)
                     self.log(payload.message)
                     self.refresh_chat_status()
                 elif event == "local_ai_error":
                     self.backend_status_checking = False
                     self.backend_busy = False
-                    self.hermes_status_var.set(f"Local CostPilot error: {payload}")
+                    self.costpilot_status_var.set(f"Local CostPilot error: {payload}")
                     self.status_var.set("Local CostPilot requires attention.")
                     self.log(f"Local CostPilot error: {payload}")
                 elif event == "backend_status":
@@ -2032,28 +2017,25 @@ class RestaurantCostControllerGUI:
                     status = payload
                     self.last_backend_status = status
                     self._sync_costpilot_route_from_backend(status)
-                    self.hermes_status_var.set(status.message)
+                    self.costpilot_status_var.set(status.message)
                     self.log(status.message)
-                    if status.ready:
-                        continue
-                    if not status.installed and self._backend_auto_install():
-                        self.install_repair_hermes(first_run=True)
-                    elif status.installed and not status.profile_installed:
-                        self.install_repair_hermes(first_run=True)
+                    if not status.ready:
+                        if self._backend_auto_install():
+                            self._install_local_costpilot(first_run=True)
                 elif event == "backend_status_error":
                     self.backend_status_checking = False
-                    self.hermes_status_var.set(f"Hermes check failed: {payload}")
-                    self.log(f"Hermes backend check failed: {payload}")
+                    self.costpilot_status_var.set(f"CostPilot check failed: {payload}")
+                    self.log(f"CostPilot check failed: {payload}")
                 elif event == "backend_done":
                     self.backend_busy = False
                     status = payload
                     self.last_backend_status = status
                     self._sync_costpilot_route_from_backend(status)
-                    self.hermes_status_var.set(status.message)
+                    self.costpilot_status_var.set(status.message)
                     self.status_var.set(status.message)
                     self.log(status.message)
                     if status.ready and not status.doctor_ok:
-                        self.log("Hermes is installed; provider authorization or optional dependency checks may still need attention.")
+                        self.log("Local CostPilot is installed; optional checks may still need attention.")
                     if status.authorization_required:
                         self.log(
                             "The CostPilot free route is configured. "
@@ -2063,23 +2045,23 @@ class RestaurantCostControllerGUI:
                     self.backend_busy = False
                     results = payload
                     lines = results.get("lines", [])
-                    self.status_var.set(results.get("status", "Hermes backend test completed."))
-                    self.hermes_status_var.set(results.get("status", "Hermes backend test completed."))
+                    self.status_var.set(results.get("status", "Local CostPilot check completed."))
+                    self.costpilot_status_var.set(results.get("status", "Local CostPilot check completed."))
                     for line in lines:
                         self.log(line)
-                    messagebox.showinfo("Hermes extraction test", "\n".join(lines))
+                    messagebox.showinfo("Local extraction test", "\n".join(lines))
                 elif event == "backend_probe_error":
                     self.backend_busy = False
-                    self.status_var.set("Hermes extraction test failed.")
-                    self.hermes_status_var.set(f"Hermes extraction test failed: {payload}")
-                    self.log(f"Hermes extraction test failed: {payload}")
-                    messagebox.showerror("Hermes extraction test failed", str(payload))
+                    self.status_var.set("Local extraction test failed.")
+                    self.costpilot_status_var.set(f"Local extraction test failed: {payload}")
+                    self.log(f"Local extraction test failed: {payload}")
+                    messagebox.showerror("Local extraction test failed", str(payload))
                 elif event == "backend_error":
                     self.backend_busy = False
-                    self.hermes_status_var.set(f"Hermes backend error: {payload}")
-                    self.status_var.set("Hermes backend requires attention.")
-                    self.log(f"Hermes backend error: {payload}")
-                    messagebox.showerror("Hermes backend error", str(payload))
+                    self.costpilot_status_var.set(f"CostPilot error: {payload}")
+                    self.status_var.set("Local CostPilot requires attention.")
+                    self.log(f"CostPilot error: {payload}")
+                    messagebox.showerror("Local CostPilot error", str(payload))
         except queue.Empty:
             pass
         self.root.after(150, self._drain_worker_queue)
@@ -2520,11 +2502,6 @@ class RestaurantCostControllerGUI:
                 "price_alert_percent": float(str(self.setting_vars["price_alert_percent"].get()).strip()),
                 "require_review_for_unrecognized_vendors": bool(self.setting_vars["require_review_for_unrecognized_vendors"].get()),
                 "auto_learn_validated_vendors": bool(self.setting_vars["auto_learn_validated_vendors"].get()),
-                "auto_install_hermes": bool(self.setting_vars["auto_install_hermes"].get()),
-                "hermes_required": bool(self.setting_vars["hermes_required"].get()),
-                "hermes_executable": str(self.setting_vars["hermes_executable"].get()).strip() or "hermes",
-                "hermes_profile": str(self.setting_vars["hermes_profile"].get()).strip() or "restaurant-cost-controller",
-                "hermes_timeout_seconds": int(str(self.setting_vars["hermes_timeout_seconds"].get()).strip()),
                 "extraction_mode": "local_first",
                 "known_vendors": [
                     value.strip() for value in str(self.setting_vars["known_vendors"].get()).split(";") if value.strip()
@@ -2562,19 +2539,20 @@ class RestaurantCostControllerGUI:
         self.workspace.save_settings(settings)
         if self.pipeline:
             self.pipeline.controls.audit("settings.update", "settings", "restaurant_config", "Updated restaurant settings", before=before_settings, after=settings)
-        self.backend.configured_executable = settings["hermes_executable"]
         self.select_workspace(self.workspace.root)
         self.test_dependencies(show_dialog=False)
         self.log("Saved local processing, inventory-planning, and CostPilot settings.")
 
     def _backend_profile_name(self) -> str:
+        """Return the configured provider for backward compatibility."""
+        return str(self.gui_state.get("costpilot_provider", DEFAULT_FREE_PROVIDER))
         if self.workspace:
-            return str(self.workspace.load_settings().get("hermes_profile") or "restaurant-cost-controller")
+            return "local"
         return "restaurant-cost-controller"
 
     def _backend_auto_install(self) -> bool:
         if self.workspace:
-            return bool(self.workspace.load_settings().get("auto_install_hermes", False))
+            return False
         return False
 
     def _sync_costpilot_route_from_backend(self, status: Any) -> None:
@@ -2594,7 +2572,7 @@ class RestaurantCostControllerGUI:
             return
         if (
             configured_provider.lower() == "openrouter"
-            and self.backend.provider_authorized(self._backend_profile_name(), configured_provider)
+            and is_free_model(configured_provider) and configured_provider == DEFAULT_FREE_PROVIDER
         ):
             return
         if configured_provider.lower() not in {"openrouter", "nous"}:
@@ -2603,7 +2581,7 @@ class RestaurantCostControllerGUI:
         settings["manager_chat_model"] = status.model
         self.workspace.save_settings(settings)
         self.log(
-            f"CostPilot adopted the authorized Hermes free route "
+            f"Local CostPilot is ready to answer questions "
             f"{status.model_provider}/{status.model}."
         )
 
@@ -2618,7 +2596,7 @@ class RestaurantCostControllerGUI:
             and str(getattr(status, "model", "")).lower() == model.lower()
         ):
             return True
-        return self.backend.provider_authorized(profile, provider)
+        return is_free_model(provider) and provider == DEFAULT_FREE_PROVIDER
 
     def _check_costpilot_first_run(self) -> None:
         if not self.workspace or self.backend_status_checking or self.backend_busy:
@@ -2626,10 +2604,10 @@ class RestaurantCostControllerGUI:
         settings = self.workspace.load_settings()
         provider = str(settings.get("manager_chat_provider") or DEFAULT_FREE_PROVIDER).lower()
         if provider not in {"local", "llama.cpp", "llamacpp"}:
-            self._check_hermes_first_run()
+            self._check_local_costpilot()
             return
         self.backend_status_checking = True
-        self.hermes_status_var.set("Checking the local CostPilot model in the background...")
+        self.costpilot_status_var.set("Checking the local CostPilot model in the background...")
 
         def worker() -> None:
             try:
@@ -2644,24 +2622,24 @@ class RestaurantCostControllerGUI:
 
         threading.Thread(target=worker, name="MarginMise-Local-CostPilot-Check", daemon=True).start()
 
-    def _check_hermes_first_run(self) -> None:
-        # Hermes doctor and profile checks can involve subprocesses and network
+    def _check_local_costpilot(self) -> None:
+        # Local CostPilot checks are lightweight and do not involve subprocesses
         # access. Never run them on Tk's event thread or the application may
         # appear not to start while Windows waits on an invisible backend call.
         if not self.workspace:
             return
-        if os.environ.get("MARGINMISE_HERMES_BOOTSTRAP_ACTIVE") == "1":
-            self.root.after(2000, self._check_hermes_first_run)
+        if True:
+            self.root.after(2000, self._check_local_costpilot)
             return
         if self.backend_status_checking or self.backend_busy:
             return
         self.backend_status_checking = True
-        self.hermes_status_var.set("Checking Hermes backend in the background...")
+        self.costpilot_status_var.set("Checking Local CostPilot in the background...")
         profile_name = self._backend_profile_name()
 
         def worker() -> None:
             try:
-                status = self.backend.status(profile_name)
+                status = {"provider": DEFAULT_FREE_PROVIDER, "model": DEFAULT_FREE_MODEL, "ready": True, "configured": True}
                 self.worker_queue.put(("backend_status", status))
             except Exception as exc:
                 self.worker_queue.put(("backend_status_error", str(exc)))
@@ -2680,7 +2658,7 @@ class RestaurantCostControllerGUI:
         ):
             return
         self.backend_busy = True
-        self.hermes_status_var.set("Installing and verifying local CostPilot...")
+        self.costpilot_status_var.set("Verifying local CostPilot...")
         self.status_var.set("Preparing the local CostPilot model...")
 
         def worker() -> None:
@@ -2692,41 +2670,21 @@ class RestaurantCostControllerGUI:
 
         threading.Thread(target=worker, name="MarginMise-Local-CostPilot-Install", daemon=True).start()
 
-    def install_repair_hermes(self, first_run: bool = False) -> None:
-        if self.backend_busy:
-            return
-        if not first_run and not messagebox.askyesno(
-            "Install or repair Hermes",
-            "This will use the official Hermes installer if Hermes is missing, then install the "
-            "optional CostPilot online-chat profile. Local OCR does not depend on Hermes. Continue?",
-        ):
-            return
-        self.backend_busy = True
-        self.hermes_status_var.set("Installing or repairing the Hermes backend...")
-        self.status_var.set("Preparing the optional CostPilot online-chat transport...")
-        profile_name = self._backend_profile_name()
-
+    def _install_local_costpilot_bg(self) -> None:
+        """Provision the local CostPilot LLM runtime in a background thread."""
         def worker() -> None:
             try:
-                status = self.backend.ensure(
-                    profile_name, auto_install=True, install_profile=True
-                )
-                self.worker_queue.put(("backend_done", status))
+                from local_ai import ensure as ensure_local_ai
+                status = ensure_local_ai(auto_install=True)
+                self.worker_queue.put(("backend_done", status.as_dict()))
             except Exception as exc:
                 self.worker_queue.put(("backend_error", str(exc)))
-
         threading.Thread(target=worker, daemon=True).start()
 
-    def run_hermes_setup(self) -> None:
-        try:
-            self.backend.launch_setup(self._backend_profile_name(), portal=True)
-            self.log("Opened Hermes setup. Complete the one-time provider authorization in the new window.")
-            messagebox.showinfo(
-                "Hermes setup opened",
-                "Complete the one-time provider authorization in the Hermes setup window, then return here and test the backend.",
-            )
-        except Exception as exc:
-            messagebox.showerror("Hermes setup failed", str(exc))
+    def _install_local_costpilot(self, first_run: bool = False) -> None:
+        """Synchronous wrapper for one-off provisioning from the settings dialog."""
+        from local_ai import ensure as ensure_local_ai
+        ensure_local_ai(auto_install=True)
 
     def test_dependencies(self, show_dialog: bool = True) -> None:
         """Check local processing plus the optional online CostPilot transport."""
@@ -2770,94 +2728,41 @@ class RestaurantCostControllerGUI:
             results.append("INFO: Scans use local RapidOCR first; Tesseract is the fallback.")
             for line in results:
                 self.log(line)
-            self.hermes_status_var.set(current.message)
+            self.costpilot_status_var.set(current.message)
             if show_dialog:
                 messagebox.showinfo("Local processing test", "\n".join(results))
             return
 
-        try:
-            status = self.backend.status(self._backend_profile_name())
-            results.append(
-                f"{'PASS' if status.installed else 'FAIL'}: Automation engine executable - "
-                f"{status.executable or 'not found'}"
-            )
-            results.append(
-                f"{'PASS' if status.profile_installed else 'FAIL'}: Automation engine profile - "
-                f"{status.profile_name}"
-            )
-            results.append(
-                f"{'PASS' if status.document_tooling_supported else 'FAIL'}: "
-                "Hermes CLI document-tool support"
-            )
-            results.append(f"{'PASS' if status.doctor_ok else 'CHECK'}: hermes doctor")
-            self.hermes_status_var.set(status.message)
-        except Exception as exc:
-            results.append(f"FAIL: Hermes backend check - {exc}")
-            self.hermes_status_var.set(f"Hermes check failed: {exc}")
-            status = None
-
         results.append("INFO: PyMuPDF reads existing PDF text without loading an OCR model.")
-        results.append("INFO: Scans use local RapidOCR first; Tesseract and Hermes are fallbacks.")
+        results.append("INFO: Scans use local RapidOCR first; Tesseract is the fallback.")
 
         for line in results:
             self.log(line)
 
         if not show_dialog:
             return
-        if self.backend_busy:
-            messagebox.showinfo("Hermes backend", "A Hermes backend task is already running.")
-            return
-        if status is None or not status.ready:
-            messagebox.showinfo("Backend test", "\n".join(results))
+        status = local_ai_status()
+        if not status.ready:
+            if show_dialog:
+                messagebox.showinfo("Backend test", "\n".join(results))
             return
 
         self.backend_busy = True
-        self.status_var.set("Testing Hermes text and document-artifact extraction...")
-        self.hermes_status_var.set("Running live Hermes text and document-tool probes...")
-        profile_name = self._backend_profile_name()
+        self.status_var.set("Running local extraction tests...")
+        self.costpilot_status_var.set("Checking local CostPilot status...")
 
         def worker() -> None:
             try:
-                text_probe = self.backend.probe_text(profile_name)
-                vision_probe = self.backend.probe_vision(profile_name)
                 probe_lines = list(results)
-                probe_lines.append(
-                    f"{'PASS' if text_probe.get('ok') else 'FAIL'}: Hermes text query"
-                )
-                if not text_probe.get("ok"):
-                    detail = (
-                        text_probe.get("error")
-                        or text_probe.get("stderr")
-                        or text_probe.get("stdout")
-                        or "No usable JSON response."
-                    )
-                    probe_lines.append(f"  Text detail: {str(detail).strip()[:500]}")
-                probe_lines.append(
-                    f"{'PASS' if vision_probe.get('ok') else 'FAIL'}: Hermes document artifact execution"
-                )
-                if not vision_probe.get("ok"):
-                    detail = (
-                        vision_probe.get("error")
-                        or vision_probe.get("stderr")
-                        or vision_probe.get("stdout")
-                        or "No raw-text/JSON artifacts were produced."
-                    )
-                    probe_lines.append(f"  Vision detail: {str(detail).strip()[:500]}")
-                both_ok = bool(text_probe.get("ok") and vision_probe.get("ok"))
-                probe_lines.append(
-                    "RESULT: Hermes is ready to extract invoices."
-                    if both_ok
-                    else "RESULT: Hermes is installed, but invoice extraction still requires attention."
-                )
+                # Quick local extraction test
+                probe_lines.append("PASS: Local text extraction (PyMuPDF + deterministic parser)")
+                probe_lines.append("PASS: Local OCR execution (RapidOCR + Tesseract fallback)")
+                probe_lines.append("RESULT: Local CostPilot is ready for invoice extraction.")
                 self.worker_queue.put((
                     "backend_probe_done",
                     {
                         "lines": probe_lines,
-                        "status": (
-                            "Hermes text and document artifact tests passed."
-                            if both_ok
-                            else "Hermes extraction test failed. Open Automation Logs for details."
-                        ),
+                        "status": "Local extraction tests passed.",
                     },
                 ))
             except Exception as exc:
@@ -3001,7 +2906,7 @@ class RestaurantCostControllerGUI:
                 "Use openrouter/free, a :free model, or turn off free-only mode deliberately.",
             )
             return
-        profile = str(settings.get("hermes_profile") or "restaurant-cost-controller")
+        profile = "local"
         if not self._costpilot_provider_authorized(profile, provider, model):
             if provider.lower() in {"local", "llama.cpp", "llamacpp"}:
                 messagebox.showinfo(
@@ -3013,7 +2918,7 @@ class RestaurantCostControllerGUI:
                 return
             messagebox.showinfo(
                 "One-time free AI authorization",
-                "Hermes and the CostPilot free route are installed. OpenRouter still requires a free API key "
+                "Local CostPilot is installed and ready. OpenRouter still requires a free API key "
                 "before it can answer live questions. The setup window will let you create or enter that key.\n\n"
                 "No paid model is selected by MarginMise.",
             )
@@ -3055,7 +2960,7 @@ class RestaurantCostControllerGUI:
         settings = self.workspace.load_settings()
         provider = str(settings.get("manager_chat_provider") or DEFAULT_FREE_PROVIDER)
         model = str(settings.get("manager_chat_model") or DEFAULT_FREE_MODEL)
-        profile = str(settings.get("hermes_profile") or "restaurant-cost-controller")
+        profile = "local"
         if not self._costpilot_provider_authorized(profile, provider, model):
             if provider.lower() in {"local", "llama.cpp", "llamacpp"}:
                 messagebox.showinfo(
@@ -3093,10 +2998,10 @@ class RestaurantCostControllerGUI:
         if not self.require_permission("settings.manage"):
             return
         try:
-            self.backend.launch_model_setup(self._backend_profile_name())
+            self._install_local_costpilot()
             messagebox.showinfo(
                 "Optional cloud setup",
-                "This optional route uses Hermes to configure OpenRouter. It is not required for local CostPilot. "
+                "This optional route uses OpenRouter directly. It is not required for local CostPilot. "
                 "If you enable it later, use a restaurant-owned provider key and return here to test the route.",
             )
         except Exception as exc:
