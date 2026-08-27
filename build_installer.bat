@@ -3,7 +3,8 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 set "PYTHON=python"
 set "VENV=.buildvenv"
-set "DIST=%CD%\dist\MarginMise"
+set "DIST=%CD%\dist"
+set "DIST_FOLDER=%DIST%\MarginMise"
 set "NSIS_EXE=C:\Program Files (x86)\NSIS\makensis.exe"
 if not exist "%NSIS_EXE%" set "NSIS_EXE=C:\Program Files\NSIS\makensis.exe"
 if not exist "%VENV%\Scripts\python.exe" set "PYTHON=%VENV%\Scripts\python.exe"
@@ -12,7 +13,7 @@ echo ========================================
 echo MarginMise Windows Installer Build
 echo ========================================
 echo Project folder: %CD%
-echo Expected dist:  %DIST%
+echo Expected dist:  %DIST_FOLDER%
 
 REM --- Step 1: Build folder-based EXE ---
 echo [1/3] Building application folder...
@@ -24,7 +25,7 @@ call "%VENV%\Scripts\activate.bat"
 echo Installing build deps...
 pip install -q --disable-pip-version-check pyinstaller==6.13.0 Pillow
 echo Running PyInstaller...
-pyinstaller --distpath "%CD%\dist" marginmise_dir.spec --clean -y
+pyinstaller --distpath "%DIST%" --workpath "%CD%\build" --specpath "%CD%" marginmise_dir.spec --clean -y
 if errorlevel 1 (
     echo BUILD FAILED at PyInstaller
     pause
@@ -34,23 +35,24 @@ if errorlevel 1 (
 REM --- Step 2: Verify dist folder exists ---
 echo [2/3] Verifying build output...
 echo Contents of dist folder:
-dir /b "%CD%\dist\" 2>nul || echo (dist folder missing)
-if exist "%DIST%" (
-    echo Contents of %DIST%:
-    dir /b "%DIST%" 2>nul || echo (empty or missing)
+dir /b "%DIST%\" 2>nul || echo (dist folder missing)
+if exist "%DIST_FOLDER%" (
+    echo Contents of %DIST_FOLDER%:
+    dir /b "%DIST_FOLDER%" 2>nul || echo (empty or missing)
 ) else (
-    echo ERROR: %DIST% not found
+    echo ERROR: %DIST_FOLDER% not found
     echo PyInstaller may have built to a different path
+    echo Check the PyInstaller output above
     pause
     exit /b 1
 )
-if not exist "%DIST%\MarginMise.exe" (
-    echo ERROR: %DIST%\MarginMise.exe not found
+if not exist "%DIST_FOLDER%\MarginMise.exe" (
+    echo ERROR: %DIST_FOLDER%\MarginMise.exe not found
     echo Please check PyInstaller output above
     pause
     exit /b 1
 )
-echo Build output verified: %DIST%
+echo Build output verified: %DIST_FOLDER%
 
 REM --- Step 3: Build NSIS installer ---
 echo [3/3] Building NSIS installer...
