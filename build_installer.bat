@@ -21,7 +21,7 @@ if not exist "%VENV%\Scripts\python.exe" (
 )
 call "%VENV%\Scripts\activate.bat"
 echo Installing build deps...
-pip install -q --disable-pip-version-check pyinstaller==6.13.0
+pip install -q --disable-pip-version-check pyinstaller==6.13.0 Pillow
 echo Running PyInstaller...
 pyinstaller marginmise_dir.spec --clean -y
 if errorlevel 1 (

@@ -68,7 +68,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/app_icon_256.png',
+    icon='assets/favicon.ico',
 )
 
 # Create a distributable folder
