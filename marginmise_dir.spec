@@ -2,7 +2,7 @@
 """PyInstaller spec for MarginMise — folder-based Windows build (memory-safe)."""
 import sys
 import os
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from pathlib import Path
 
 hidden_imports = [
     'invoice_pipeline',
@@ -31,7 +31,7 @@ hidden_imports = [
     'bootstrap',
 ]
 
-datas = collect_data_files('assets', dir='assets')
+datas = [(str(p), str(p.parent if p.is_file() else p)) for p in Path("assets").rglob("*") if p.is_file()]
 
 a = Analysis(
     ['bootstrap.py'],

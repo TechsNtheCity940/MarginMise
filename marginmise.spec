@@ -12,7 +12,7 @@
 
 import sys
 import os
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from pathlib import Path
 
 # All internal modules must be explicitly listed (no hidden imports)
 hidden_imports = [
@@ -43,7 +43,7 @@ hidden_imports = [
 ]
 
 # Collect all data files from assets directory
-datas = collect_data_files('assets', dir='assets')
+datas = [(str(p), str(p.parent if p.is_file() else p)) for p in Path('assets').rglob('*') if p.is_file()]
 
 a = Analysis(
     ['bootstrap.py'],
