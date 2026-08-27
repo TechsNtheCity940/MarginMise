@@ -21,7 +21,7 @@ RequestExecutionLevel user
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File /r "dist\MarginMise\*.*"
+  File /r "..\dist\MarginMise\*.*"
 
   ; Desktop shortcut
   CreateShortCut "$DESKTOP\MarginMise.lnk" "$INSTDIR\MarginMise.exe" "" "$INSTDIR\assets\favicon.ico" 0
