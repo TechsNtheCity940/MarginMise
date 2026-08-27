@@ -25,7 +25,7 @@ call "%VENV%\Scripts\activate.bat"
 echo Installing build deps...
 pip install -q --disable-pip-version-check pyinstaller==6.13.0 Pillow
 echo Running PyInstaller...
-pyinstaller --distpath "%DIST%" --workpath "%CD%\build" --specpath "%CD%" marginmise_dir.spec --clean -y
+pyinstaller --distpath "%DIST%" --workpath "%CD%\build" marginmise_dir.spec --clean -y
 if errorlevel 1 (
     echo BUILD FAILED at PyInstaller
     pause
