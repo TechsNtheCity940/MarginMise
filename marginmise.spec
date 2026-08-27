@@ -1,20 +1,9 @@
 #!/usr/bin/env python3
 """PyInstaller spec for MarginMise — standalone Windows .exe build."""
-#
-# To build: pyinstaller marginmise.spec
-#
-# This creates a one-file, windowed executable with all Python modules
-# and assets bundled. On first run, the exe will:
-#   1. Extract itself to %LOCALAPPDATA%\MarginMise
-#   2. Download Tesseract OCR (silent)
-#   3. Download llama.cpp + LFM2.5 model (silent, ~250MB)
-# No internet required after initial setup.
-
 import sys
 import os
 from pathlib import Path
 
-# All internal modules must be explicitly listed (no hidden imports)
 hidden_imports = [
     'invoice_pipeline',
     'bulk_ingestion',
@@ -42,7 +31,6 @@ hidden_imports = [
     'bootstrap',
 ]
 
-# Collect all data files from assets directory
 datas = [(str(p), str(p.parent if p.is_file() else p)) for p in Path('assets').rglob('*') if p.is_file()]
 
 a = Analysis(
@@ -70,10 +58,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,          # Windowed — no console popup
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -81,4 +69,3 @@ exe = EXE(
     entitlements_file=None,
     icon='assets/app_icon_256.png',
 )
-
