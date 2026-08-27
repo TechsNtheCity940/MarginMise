@@ -7,7 +7,9 @@ echo MarginMise Windows Installer Build
 echo ========================================
 echo.
 
-REM Ensure NSIS is available
+REM Ensure NSIS is on PATH for this session
+set "PATH=%PATH%;C:\Program Files (x86)\NSIS;C:\Program Files\NSIS"
+
 where makensis >nul 2>&1
 if errorlevel 1 (
     echo NSIS not found. Installing NSIS...
@@ -15,6 +17,15 @@ if errorlevel 1 (
     if errorlevel 1 (
         echo ERROR: Could not install NSIS automatically.
         echo Please install NSIS from https://nsis.sourceforge.io/
+        pause
+        exit /b 1
+    )
+    REM Try again after install
+    set "PATH=%PATH%;C:\Program Files (x86)\NSIS;C:\Program Files\NSIS"
+    where makensis >nul 2>&1
+    if errorlevel 1 (
+        echo ERROR: NSIS installed but makensis still not found.
+        echo Please open a NEW command prompt and run build_installer.bat again.
         pause
         exit /b 1
     )
