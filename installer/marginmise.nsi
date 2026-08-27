@@ -22,9 +22,9 @@ ShowInstDetails show
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Install"
-  ; Install files
+  ; Install files from deploy folder
   SetOutPath "$INSTDIR"
-  File /r "dist\MarginMise\*.*"
+  File /r "deploy\MarginMise\*.*"
   
   ; Create desktop shortcut
   CreateShortCut "$DESKTOP\MarginMise.lnk" "$INSTDIR\MarginMise.exe" "" "$INSTDIR\assets\app_icon_256.png" 0

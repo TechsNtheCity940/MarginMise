@@ -6,10 +6,8 @@ echo ========================================
 echo MarginMise Windows Installer Build
 echo ========================================
 echo.
-echo This creates a professional Windows installer.
-echo.
 
-REM Check if NSIS is installed
+REM Ensure NSIS is available
 where makensis >nul 2>&1
 if errorlevel 1 (
     echo NSIS not found. Installing NSIS...
@@ -22,7 +20,7 @@ if errorlevel 1 (
     )
 )
 
-REM Build folder-based EXE first
+REM Build folder-based EXE
 echo [1/4] Building application...
 call build_exe_dir.bat
 if errorlevel 1 (
@@ -31,19 +29,38 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Create installer
+REM Verify build output
 echo.
-echo [2/4] Creating Windows installer...
+echo [2/4] Verifying build output...
+if not exist "dist\MarginMise\MarginMise.exe" (
+    echo ERROR: dist\MarginMise\MarginMise.exe not found
+    pause
+    exit /b 1
+)
+
+REM Create installer output folder
+echo.
+echo [3/4] Creating installer package...
+if not exist "deploy" mkdir deploy
+if exist "deploy\MarginMise" rmdir /s /q deploy\MarginMise
+
+REM Copy build output and launcher files
+xcopy /E /I /Y "dist\MarginMise\*" "deploy\MarginMise\"
+copy /Y "run_marginmise.bat" "deploy\MarginMise\" >nul 2>&1
+copy /Y "README.md" "deploy\MarginMise\" >nul 2>&1
+
+REM Build NSIS installer from the correct folder
 makensis /V2 installer\marginmise.nsi
 if errorlevel 1 (
+    echo.
     echo Installer build failed!
     pause
     exit /b 1
 )
 
-REM Verify output
+REM Verify installer output
 echo.
-echo [3/4] Verifying output...
+echo [4/4] Verifying installer...
 if exist "MarginMise-Installer.exe" (
     echo.
     echo ========================================
@@ -76,6 +93,6 @@ if exist "MarginMise-Installer.exe" (
 )
 
 echo.
-echo [4/4] Done.
+echo Done.
 pause
 endlocal
