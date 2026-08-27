@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 set "PYTHON=python"
 set "VENV=.buildvenv"
-set "DIST=dist\MarginMise"
+set "DIST=%CD%\dist\MarginMise"
 set "NSIS_EXE=C:\Program Files (x86)\NSIS\makensis.exe"
 if not exist "%NSIS_EXE%" set "NSIS_EXE=C:\Program Files\NSIS\makensis.exe"
 if not exist "%VENV%\Scripts\python.exe" set "PYTHON=%VENV%\Scripts\python.exe"
@@ -11,6 +11,8 @@ if not exist "%VENV%\Scripts\python.exe" set "PYTHON=%VENV%\Scripts\python.exe"
 echo ========================================
 echo MarginMise Windows Installer Build
 echo ========================================
+echo Project folder: %CD%
+echo Expected dist:  %DIST%
 
 REM --- Step 1: Build folder-based EXE ---
 echo [1/3] Building application folder...
@@ -22,7 +24,7 @@ call "%VENV%\Scripts\activate.bat"
 echo Installing build deps...
 pip install -q --disable-pip-version-check pyinstaller==6.13.0 Pillow
 echo Running PyInstaller...
-pyinstaller marginmise_dir.spec --clean -y
+pyinstaller --distpath "%CD%\dist" marginmise_dir.spec --clean -y
 if errorlevel 1 (
     echo BUILD FAILED at PyInstaller
     pause
@@ -31,10 +33,20 @@ if errorlevel 1 (
 
 REM --- Step 2: Verify dist folder exists ---
 echo [2/3] Verifying build output...
+echo Contents of dist folder:
+dir /b "%CD%\dist\" 2>nul || echo (dist folder missing)
+if exist "%DIST%" (
+    echo Contents of %DIST%:
+    dir /b "%DIST%" 2>nul || echo (empty or missing)
+) else (
+    echo ERROR: %DIST% not found
+    echo PyInstaller may have built to a different path
+    pause
+    exit /b 1
+)
 if not exist "%DIST%\MarginMise.exe" (
     echo ERROR: %DIST%\MarginMise.exe not found
-    echo PyInstaller may have built to a different path
-    dir /b dist\ 2>nul
+    echo Please check PyInstaller output above
     pause
     exit /b 1
 )
