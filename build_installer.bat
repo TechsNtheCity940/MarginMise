@@ -4,7 +4,6 @@ cd /d "%~dp0"
 set "PYTHON=python"
 set "VENV=.buildvenv"
 set "DIST=dist\MarginMise"
-set "DEPLOY=deploy\MarginMise"
 set "NSIS_EXE=C:\Program Files (x86)\NSIS\makensis.exe"
 if not exist "%NSIS_EXE%" set "NSIS_EXE=C:\Program Files\NSIS\makensis.exe"
 if not exist "%VENV%\Scripts\python.exe" set "PYTHON=%VENV%\Scripts\python.exe"
@@ -30,11 +29,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM --- Step 2: Copy logo and assets ---
-echo [2/3] Packaging installer assets...
-if not exist "%DEPLOY%" mkdir "%DEPLOY%"
-xcopy /E /I /Y "%DIST%\*" "%DEPLOY%\"
-if exist "assets" xcopy /E /I /Y "assets\*" "%DEPLOY%\assets\"
+REM --- Step 2: Verify dist folder exists ---
+echo [2/3] Verifying build output...
+if not exist "%DIST%\MarginMise.exe" (
+    echo ERROR: %DIST%\MarginMise.exe not found
+    echo PyInstaller may have built to a different path
+    dir /b dist\ 2>nul
+    pause
+    exit /b 1
+)
+echo Build output verified: %DIST%
 
 REM --- Step 3: Build NSIS installer ---
 echo [3/3] Building NSIS installer...

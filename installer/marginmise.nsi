@@ -21,14 +21,14 @@ RequestExecutionLevel user
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File /r "deploy\MarginMise\*.*"
+  File /r "dist\MarginMise\*.*"
 
   ; Desktop shortcut
-  CreateShortCut "$DESKTOP\MarginMise.lnk" "$INSTDIR\MarginMise.exe" "" "$INSTDIR\assets\margin_mise_logo.ico" 0
+  CreateShortCut "$DESKTOP\MarginMise.lnk" "$INSTDIR\MarginMise.exe" "" "$INSTDIR\assets\favicon.ico" 0
 
   ; Start Menu shortcut
   CreateDirectory "$SMPROGRAMS\MarginMise"
-  CreateShortCut "$SMPROGRAMS\MarginMise\MarginMise.lnk" "$INSTDIR\MarginMise.exe" "" "$INSTDIR\assets\margin_mise_logo.ico" 0
+  CreateShortCut "$SMPROGRAMS\MarginMise\MarginMise.lnk" "$INSTDIR\MarginMise.exe" "" "$INSTDIR\assets\favicon.ico" 0
   CreateShortCut "$SMPROGRAMS\MarginMise\Uninstall.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0
 
   ; Uninstaller
