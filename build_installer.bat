@@ -20,7 +20,6 @@ if errorlevel 1 (
         pause
         exit /b 1
     )
-    REM Try again after install
     set "PATH=%PATH%;C:\Program Files (x86)\NSIS;C:\Program Files\NSIS"
     where makensis >nul 2>&1
     if errorlevel 1 (
@@ -61,6 +60,8 @@ copy /Y "run_marginmise.bat" "deploy\MarginMise\" >nul 2>&1
 copy /Y "README.md" "deploy\MarginMise\" >nul 2>&1
 
 REM Build NSIS installer from the correct folder
+echo.
+echo [4/4] Building installer EXE...
 makensis /V2 installer\marginmise.nsi
 if errorlevel 1 (
     echo.
@@ -71,7 +72,7 @@ if errorlevel 1 (
 
 REM Verify installer output
 echo.
-echo [4/4] Verifying installer...
+echo Verifying installer...
 if exist "MarginMise-Installer.exe" (
     echo.
     echo ========================================
