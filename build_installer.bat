@@ -5,106 +5,56 @@ cd /d "%~dp0"
 echo ========================================
 echo MarginMise Windows Installer Build
 echo ========================================
-echo.
 
-REM Ensure NSIS is on PATH for this session
-set "PATH=%PATH%;C:\Program Files (x86)\NSIS;C:\Program Files\NSIS"
-
-where makensis >nul 2>&1
-if errorlevel 1 (
-    echo NSIS not found. Installing NSIS...
-    winget install --id NSIS.NSIS --exact --silent --accept-package-agreements --accept-source-agreements
-    if errorlevel 1 (
-        echo ERROR: Could not install NSIS automatically.
-        echo Please install NSIS from https://nsis.sourceforge.io/
-        pause
-        exit /b 1
-    )
-    set "PATH=%PATH%;C:\Program Files (x86)\NSIS;C:\Program Files\NSIS"
-    where makensis >nul 2>&1
-    if errorlevel 1 (
-        echo ERROR: NSIS installed but makensis still not found.
-        echo Please open a NEW command prompt and run build_installer.bat again.
-        pause
-        exit /b 1
-    )
+REM --- Step 1: Build folder-based EXE ---
+echo [1/3] Building application folder...
+if not exist ".buildvenv\Scripts\activate.bat" (
+    echo Creating build venv...
+    python -m venv .buildvenv
+    .buildvenv\Scripts\activate.bat
+    pip install -r requirements.txt pyinstaller==6.13.0
 )
-
-REM Build folder-based EXE
-echo [1/4] Building application...
-call build_exe_dir.bat
+.\.buildvenv\Scripts\activate.bat
+pyinstaller marginmise_dir.spec --clean -y
 if errorlevel 1 (
-    echo Build failed!
+    echo BUILD FAILED
     pause
     exit /b 1
 )
 
-REM Verify build output
-echo.
-echo [2/4] Verifying build output...
-if not exist "dist\MarginMise\MarginMise.exe" (
-    echo ERROR: dist\MarginMise\MarginMise.exe not found
-    pause
-    exit /b 1
-)
-
-REM Create installer output folder
-echo.
-echo [3/4] Creating installer package...
-if not exist "deploy" mkdir deploy
-if exist "deploy\MarginMise" rmdir /s /q deploy\MarginMise
-
-REM Copy build output and launcher files
+REM --- Step 2: Copy logo and assets ---
+echo [2/3] Packaging installer assets...
+if not exist "deploy\MarginMise" mkdir "deploy\MarginMise"
 xcopy /E /I /Y "dist\MarginMise\*" "deploy\MarginMise\"
-copy /Y "run_marginmise.bat" "deploy\MarginMise\" >nul 2>&1
-copy /Y "README.md" "deploy\MarginMise\" >nul 2>&1
+xcopy /E /I /Y "assets\*" "deploy\MarginMise\assets\"
 
-REM Build NSIS installer from the correct folder
-echo.
-echo [4/4] Building installer EXE...
-makensis /V2 installer\marginmise.nsi
+REM --- Step 3: Build NSIS installer ---
+echo [3/3] Building NSIS installer...
+set NSIS="C:\Program Files (x86)\NSIS\makensis.exe"
+if not exist %NSIS% set NSIS="C:\Program Files\NSIS\makensis.exe"
+if not exist %NSIS% (
+    echo NSIS not found, installing via winget...
+    winget install NSIS.NSIS --accept-source-agreements --accept-package-agreements
+    timeout /t 10 /nobreak >nul
+    set NSIS="C:\Program Files (x86)\NSIS\makensis.exe"
+    if not exist %NSIS% set NSIS="C:\Program Files\NSIS\makensis.exe"
+)
+%NSIS% /V2 installer\marginmise.nsi
 if errorlevel 1 (
-    echo.
-    echo Installer build failed!
+    echo INSTALLER BUILD FAILED
     pause
     exit /b 1
 )
 
-REM Verify installer output
 echo.
-echo Verifying installer...
-if exist "MarginMise-Installer.exe" (
-    echo.
-    echo ========================================
-    echo INSTALLER BUILD SUCCESSFUL!
-    echo ========================================
-    echo.
-    echo Output: MarginMise-Installer.exe
-    echo.
-    echo This installer:
-    echo   - Creates a professional Windows installer
-    echo   - Installs to %%LOCALAPPDATA%%\MarginMise
-    echo   - Creates desktop shortcut
-    echo   - Creates Start Menu entry
-    echo   - Adds Add/Remove Programs entry
-    echo   - Includes uninstaller
-    echo.
-    echo To deploy:
-    echo   1. Copy MarginMise-Installer.exe to any Windows PC
-    echo   2. Double-click to install
-    echo   3. Launch from desktop or Start Menu
-    echo.
-    for %%F in ("MarginMise-Installer.exe") do echo File size: %%~zF bytes (%%~zF / 1024 / 1024 MB)
-    echo.
-) else (
-    echo.
-    echo ========================================
-    echo INSTALLER BUILD FAILED!
-    echo ========================================
-    echo Check the NSIS output above for errors.
-)
-
+echo ========================================
+echo BUILD SUCCESSFUL!
+echo ========================================
+echo Output: MarginMise-Installer.exe
 echo.
-echo Done.
+echo To distribute:
+echo   1. Copy MarginMise-Installer.exe to any Windows PC
+echo   2. Double-click to install
+echo   3. Creates desktop shortcut automatically
+echo.
 pause
-endlocal
