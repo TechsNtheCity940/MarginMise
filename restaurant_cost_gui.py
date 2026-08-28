@@ -3107,7 +3107,7 @@ class RestaurantCostControllerGUI:
             self.log(f"Data-quality refresh warning: {exc}")
 
     def _selected_exception(self, from_dashboard: bool = False) -> dict[str, Any] | None:
-        tree = self.attention_tree if from_dashboard else self.exceptions_tree
+        tree = self._attention_tree if from_dashboard else self.exceptions_tree
         selected = tree.selection()
         if not selected:
             return None
