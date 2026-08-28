@@ -1622,7 +1622,20 @@ class InvoicePipeline:
         recovered_requires_review = bool(recovery.get("recovered_fields")) and not bool(
             self.settings.get("auto_approve_recovered_invoice_headers", True)
         )
-        needs_review = bool(errors) or unrecognized_requires_review or recovered_requires_review
+        confidence_requires_review = extraction.confidence < float(
+            self.settings.get("auto_approve_confidence", 0.92)
+        ) and not (
+            extraction.vendor_recognized
+            and extraction.method == "structured-excel"
+        )
+        warning_requires_review = bool(warnings) and extraction.method != "structured-excel"
+        needs_review = (
+            bool(errors)
+            or unrecognized_requires_review
+            or recovered_requires_review
+            or confidence_requires_review
+            or warning_requires_review
+        )
         if recovered_requires_review:
             finding = Finding(
                 "WARNING", "Header Recovery",

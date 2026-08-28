@@ -140,7 +140,9 @@ def test_legacy_costpilot_check_has_no_recurring_timer() -> None:
 
 def test_automation_defaults_to_posting_clean_records() -> None:
     source = read("invoice_pipeline.py")
-    assert "needs_review = bool(errors) or unrecognized_requires_review or recovered_requires_review" in source
+    assert "confidence_requires_review = extraction.confidence" in source
+    assert "warning_requires_review = bool(warnings)" in source
+    assert "and extraction.method == \"structured-excel\"" in source
     assert '"require_review_for_unrecognized_vendors": False' in source
     assert '"auto_learn_validated_vendors": True' in source
 
