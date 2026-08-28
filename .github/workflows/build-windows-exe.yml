@@ -73,6 +73,21 @@ jobs:
             Get-Process -Name MarginMise -ErrorAction SilentlyContinue | Stop-Process -Force
           }
 
+      - name: Verify OCR engines are bundled (numpy/onnxruntime/RapidOCR)
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'dist\MarginMise\MarginMise.exe').Path
+          # Generate a tiny PNG with readable text so RapidOCR has something to read.
+          python -c "from PIL import Image, ImageDraw; img = Image.new('RGB',(420,120),'white'); d = ImageDraw.Draw(img); d.text((10,40),'INVOICE 12345 TOTAL 49.99', fill='black'); img.save('ocr_probe.png')"
+          if (-not (Test-Path 'ocr_probe.png')) { throw 'Failed to create OCR probe image' }
+          $out = Join-Path $env:TEMP 'ocr_probe_result.json'
+          $ocr = Start-Process -FilePath $exe -ArgumentList '--ocr-worker','extract','--output',$out,'ocr_probe.png' -Wait -PassThru
+          if ($ocr.ExitCode -ne 0) { throw "OCR worker exited with code $($ocr.ExitCode) (numpy/onnxruntime likely missing from bundle)" }
+          if (-not (Test-Path $out)) { throw 'OCR worker produced no result file' }
+          $text = (Get-Content $out -Raw | ConvertFrom-Json).text
+          if (-not $text) { throw 'OCR worker returned empty text' }
+          Write-Host "OCR probe passed: RapidOCR extracted text from bundled engine."
+
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
