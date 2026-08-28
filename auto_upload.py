@@ -161,6 +161,208 @@ def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat()
 
 
+# Restaurant identity discovery ------------------------------------------------
+#
+# When a user points MarginMise at a folder, the program should create the
+# restaurant automatically and fill in whatever identity details it can find.
+# Detection is intentionally conservative: only fields that were actually
+# observed are returned, so callers can fill empty settings without clobbering
+# values a manager already entered.
+
+RESTAURANT_IDENTITY_FILENAMES = (
+    "restaurant_info.json",
+    "restaurant.json",
+    "info.json",
+    "company.json",
+    "business.json",
+)
+
+_RESTAURANT_NAME_KEYWORDS = (
+    "bar", "grill", "restaurant", "cafe", "café", "diner", "kitchen",
+    "pub", "bistro", "eatery", "pizzeria", "tavern", "bakery", "kitchen",
+)
+
+
+def _coerce_str(value: Any) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def _looks_like_restaurant_name(text: str) -> bool:
+    text = (text or "").strip()
+    if not text or len(text) > 80:
+        return False
+    lowered = text.lower()
+    return any(kw in lowered for kw in _RESTAURANT_NAME_KEYWORDS)
+
+
+def _apply_identity_json(result: dict[str, Any], data: dict[str, Any]) -> None:
+    name_keys = (
+        "restaurant_name", "name", "business_name", "company_name",
+        "location_name", "establishment",
+    )
+    if not result.get("restaurant_name"):
+        for key in name_keys:
+            value = _coerce_str(data.get(key))
+            if value:
+                result["restaurant_name"] = value
+                break
+    mapping = (
+        ("street", "street"),
+        ("address", "street"),
+        ("location", "street"),
+        ("city", "city"),
+        ("state", "state"),
+        ("region", "state"),
+        ("province", "state"),
+        ("zip", "zip"),
+        ("zipcode", "zip"),
+        ("postal_code", "zip"),
+        ("postal", "zip"),
+        ("latitude", "latitude"),
+        ("lat", "latitude"),
+        ("longitude", "longitude"),
+        ("lon", "longitude"),
+        ("lng", "longitude"),
+        ("timezone", "timezone"),
+        ("tz", "timezone"),
+        ("currency", "currency"),
+        ("phone", "phone"),
+        ("email", "email"),
+    )
+    for source_key, target_key in mapping:
+        if result.get(target_key):
+            continue
+        value = _coerce_str(data.get(source_key))
+        if value:
+            result[target_key] = value
+    # Build a complete address from the component parts. A bare `address`/`location`
+    # value is treated as the street line so the assembled address includes it.
+    assembled = ", ".join(
+        part for part in (result.get(k, "") for k in ("street", "city", "state", "zip")) if part
+    )
+    if assembled:
+        result["address"] = assembled
+
+
+def _excel_title_name(path: Path) -> str | None:
+    try:
+        import openpyxl
+
+        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        for sheet in workbook.worksheets:
+            first_row = next(sheet.iter_rows(values_only=True), None)
+            if not first_row:
+                continue
+            for cell in first_row:
+                if isinstance(cell, str) and _looks_like_restaurant_name(cell):
+                    return cell.strip()
+    except Exception:
+        return None
+    return None
+
+
+def _csv_title_name(path: Path) -> str | None:
+    try:
+        with path.open("r", encoding="utf-8-sig", errors="replace") as handle:
+            first_line = handle.readline()
+        cleaned = first_line.strip().strip("#").strip()
+        if "," not in cleaned and _looks_like_restaurant_name(cleaned):
+            return cleaned
+    except Exception:
+        return None
+    return None
+
+
+def _scan_folder_for_restaurant_name(source_root: Path) -> str | None:
+    try:
+        for path in sorted(source_root.iterdir()):
+            if path.is_file() and path.suffix.lower() in {".xlsx", ".xlsm"}:
+                name = _excel_title_name(path)
+                if name:
+                    return name
+        for path in sorted(source_root.iterdir()):
+            if path.is_file() and path.suffix.lower() == ".csv":
+                name = _csv_title_name(path)
+                if name:
+                    return name
+    except Exception:
+        return None
+    return None
+
+
+def _scan_readme_for_restaurant_name(source_root: Path) -> str | None:
+    for name in ("README.md", "README.txt", "ABOUT.md", "readme.md", "About.txt"):
+        path = source_root / name
+        if not path.is_file():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()[:40]
+        except Exception:
+            continue
+        for line in lines:
+            cleaned = line.lstrip("#*- ").strip()
+            cleaned = re.split(r"\s[—-]\s", cleaned)[0].strip()
+            if _looks_like_restaurant_name(cleaned):
+                return cleaned
+    return None
+
+
+def discover_restaurant_identity(source_root: Path) -> dict[str, Any]:
+    """Extract restaurant name and location from a records folder.
+
+    Only fields actually observed in the folder are returned. Callers should
+    apply the result by filling empty settings rather than overwriting existing
+    values, so a manager's manual edits are never lost.
+    """
+    source_root = Path(source_root)
+    result: dict[str, Any] = {}
+
+    for filename in RESTAURANT_IDENTITY_FILENAMES:
+        candidate = source_root / filename
+        if candidate.is_file():
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8-sig"))
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                _apply_identity_json(result, data)
+                if result.get("restaurant_name"):
+                    break
+
+    if not result.get("restaurant_name") and (source_root / "restaurant_config.json").is_file():
+        try:
+            data = json.loads((source_root / "restaurant_config.json").read_text(encoding="utf-8-sig"))
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            value = _coerce_str(data.get("restaurant_name"))
+            if value:
+                result["restaurant_name"] = value
+            for key in ("address", "latitude", "longitude", "timezone", "currency"):
+                if not result.get(key):
+                    v = _coerce_str(data.get(key))
+                    if v:
+                        result[key] = v
+
+    if not result.get("restaurant_name"):
+        scanned = _scan_folder_for_restaurant_name(source_root)
+        if scanned:
+            result["restaurant_name"] = scanned
+
+    if not result.get("restaurant_name"):
+        readme = _scan_readme_for_restaurant_name(source_root)
+        if readme:
+            result["restaurant_name"] = readme
+
+    if not result.get("restaurant_name"):
+        folder_name = re.sub(r"[-_]+", " ", source_root.name).strip()
+        folder_name = re.sub(r"\s+", " ", folder_name)
+        if folder_name:
+            result["restaurant_name"] = folder_name.title()
+
+    return result
+
+
 def normalize(value: Any) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip())
 
@@ -1848,7 +2050,10 @@ class InitialDocumentDiscovery:
     ) -> tuple[bool, str]:
         if classification.detected_type not in DISCOVERY_DOCUMENT_TYPES:
             return False, classification.reason
-        if classification.confidence < 0.90:
+        # The classifier is deterministic for supported formats. Files with a
+        # usable schema are safe to queue; the downstream importer still applies
+        # row-level validation and preserves failures for review.
+        if classification.confidence < 0.50:
             return False, (
                 f"Classification confidence {classification.confidence:.0%} is below the "
                 "automatic discovery threshold"

@@ -14,3 +14,6 @@ restaurant_costs.sqlite3
 Thumbs.db
 *.tmp
 logs/
+
+# Test scratch artifacts
+__t_*/

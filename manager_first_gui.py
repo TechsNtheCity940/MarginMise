@@ -14,11 +14,13 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any, Callable
 
+from auto_upload import ensure_auto_upload_folder
 from dashboard_service import DashboardService
 from dashboard_widgets import DashboardView
+from invoice_pipeline import RestaurantWorkspace
 from restaurant_cost_gui import RestaurantCostControllerGUI, open_path
 from src.theme import (
     BORDER_COLOR,
@@ -540,6 +542,18 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
             text="Drop incoming files into one folder. The background automation identifies, imports, and organizes them for you.",
             style="Muted.TLabel",
         ).pack(anchor="w", pady=(2, 14))
+        self.import_folder_button = ttk.Button(
+            self.work_hub_tab,
+            text="Import restaurant from folder",
+            command=self.import_restaurant_folder,
+        )
+        self.import_folder_button.pack(anchor="w", pady=(0, 10))
+        ttk.Label(
+            self.work_hub_tab,
+            text="Point MarginMise at a folder of existing restaurant files. The program reads the restaurant name and location from the files, creates the restaurant, and imports every supported document automatically.",
+            style="Muted.TLabel",
+            wraplength=900,
+        ).pack(anchor="w", pady=(0, 12))
         self.work_cards_container = ttk.Frame(self.work_hub_tab)
         self.work_cards_container.pack(fill="both", expand=True)
         self.work_card_widgets: list[tuple[ttk.Frame, str | None]] = []
@@ -566,6 +580,85 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
         self.work_cards_container.columnconfigure(1, weight=1)
         for row in range(3):
             self.work_cards_container.rowconfigure(row, weight=1)
+
+    def import_restaurant_folder(self) -> None:
+        """Create a restaurant from a folder and import all supported data.
+
+        The program reads the restaurant name and location directly from the
+        folder's files (a JSON info file, spreadsheet/POS naming, README, or the
+        folder name), creates the workspace automatically, and then runs the
+        same document discovery used by the Auto Upload folder so invoices,
+        sales, counts, recipes, costs, and events are imported with no manager
+        data entry.
+        """
+        selected = filedialog.askdirectory(
+            title="Choose the restaurant records folder to import",
+        )
+        if not selected:
+            return
+        source_root = Path(selected).expanduser().resolve()
+
+        from auto_upload import discover_restaurant_identity
+
+        identity = discover_restaurant_identity(source_root)
+        restaurant_name = str(identity.get("restaurant_name") or source_root.name).strip()
+        if not restaurant_name:
+            restaurant_name = "Imported Restaurant"
+
+        # Always create a dedicated workspace so the imported originals are never
+        # touched and the restaurant appears in the sidebar immediately.
+        workspace_path = Path.home() / "MarginMise Restaurants" / restaurant_name
+        try:
+            workspace_path.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            messagebox.showerror(
+                "Import restaurant",
+                f"Could not create the restaurant workspace at {workspace_path}:\n{exc}",
+            )
+            return
+
+        try:
+            workspace = RestaurantWorkspace(workspace_path)
+            settings = workspace.load_settings()
+            settings.update({
+                "restaurant_name": restaurant_name,
+                "initial_document_discovery_pending": True,
+                "initial_document_discovery_source": str(source_root),
+                "document_discovery_last_status": "Pending",
+            })
+            for key in ("address", "latitude", "longitude", "timezone", "currency"):
+                value = (identity.get(key) or "").strip()
+                if value:
+                    settings[key] = value
+            workspace.save_settings(settings)
+            upload_folder = ensure_auto_upload_folder(workspace, restaurant_name)
+            self.registry.add(restaurant_name, workspace_path)
+            self._refresh_restaurant_combo()
+        except Exception as exc:
+            messagebox.showerror(
+                "Import restaurant",
+                f"Failed to initialize the restaurant workspace:\n{exc}",
+            )
+            return
+
+        details = []
+        details.append(f"Restaurant: {restaurant_name}")
+        if identity.get("address"):
+            details.append(f"Address: {identity['address']}")
+        if identity.get("latitude") or identity.get("longitude"):
+            details.append(
+                f"Coordinates: {identity.get('latitude', '')}, {identity.get('longitude', '')}"
+            )
+        if identity.get("timezone"):
+            details.append(f"Timezone: {identity['timezone']}")
+
+        messagebox.showinfo(
+            "Restaurant created",
+            "Restaurant imported and queued for automatic document discovery.\n\n"
+            + "\n".join(details)
+            + f"\n\nAuto upload folder: {upload_folder}",
+        )
+        self.select_workspace(workspace_path)
 
     def _build_insights_hub(self) -> None:
         ttk.Label(self.insights_hub_tab, text="Insights", style="PageTitle.TLabel").pack(anchor="w")
