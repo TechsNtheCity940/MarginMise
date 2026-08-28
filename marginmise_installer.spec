@@ -13,7 +13,7 @@ hidden_imports = [
 ]
 
 a = Analysis(
-    ['launch_gui.py'],
+    ['installer/phased_installer.py'],
     pathex=['.'],
     binaries=[],
     datas=[],

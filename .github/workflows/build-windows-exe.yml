@@ -2,6 +2,8 @@ name: Build MarginMise Windows EXE
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -44,6 +46,27 @@ jobs:
           $exe = Get-Item 'dist\MarginMise.exe'
           Write-Host "Built: $($exe.FullName)"
           Write-Host "Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
+
+      - name: Smoke test executable process behavior
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'dist\MarginMise.exe').Path
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            Start-Sleep -Seconds 8
+            if ($process.HasExited) {
+              throw "MarginMise exited during startup with code $($process.ExitCode)"
+            }
+            $copies = @(Get-Process -Name MarginMise -ErrorAction SilentlyContinue)
+            if ($copies.Count -ne 1) {
+              throw "Expected one MarginMise process, found $($copies.Count)"
+            }
+            Write-Host "Smoke test passed: exactly one GUI process is running."
+          }
+          finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            Get-Process -Name MarginMise -ErrorAction SilentlyContinue | Stop-Process -Force
+          }
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4

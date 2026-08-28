@@ -12,14 +12,9 @@ MarginMise is an all-in-one restaurant cost management system that runs entirely
 
 1. Download the latest release from the [Releases](https://github.com/TechsNtheCity940/MarginMise/releases) page, or build from source.
 2. Extract the zip and run `MarginMise.exe` or `install_windows.bat`.
-3. The first run will:
-   - Install Python if needed
-   - Create a virtual environment
-   - Install all dependencies
-   - Silently install Tesseract OCR
-   - Download the local AI model
-4. Subsequent launches start immediately.
-5. To distribute: copy `dist/MarginMise.exe` to any Windows PC. No Python installation is needed on the target machine.
+3. The packaged application starts directly from its bundled Python runtime.
+4. OCR and CostPilot runtimes are started only when those features are used.
+5. To distribute: copy `dist/MarginMise.exe` to any Windows PC. No Python installation or runtime venv is needed on the target machine.
 
 ### macOS / Linux
 
@@ -173,11 +168,11 @@ MarginMise can be packaged as a standalone Windows executable so managers don't 
 
 3. **Find the output:** The executable will be at `dist/MarginMise.exe`
 
-4. **Distribute:** Copy `dist/MarginMise.exe` to any Windows PC. On first run, it will:
-   - Extract itself to `%LOCALAPPDATA%\MarginMise`
-   - Download Tesseract OCR (silent)
-   - Download llama.cpp + LFM2.5 model (silent, ~250MB)
-   - No internet required after initial setup
+4. **Distribute:** Copy `dist/MarginMise.exe` to any Windows PC. It will:
+   - Start the bundled GUI directly
+   - Start OCR and CostPilot helper processes only when requested
+   - Keep downloaded OCR/AI data under `%LOCALAPPDATA%\MarginMise`
+   - Require no Python installation on the target machine
 
 ### PyInstaller Spec File
 

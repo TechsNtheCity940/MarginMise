@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lightweight MarginMise installer EXE for restaurant PCs.
+r"""Lightweight MarginMise installer EXE for restaurant PCs.
 
 This is a minimal bootstrapper that:
 1. Extracts the full app to %LOCALAPPDATA%\MarginMise
@@ -12,6 +12,7 @@ The EXE is built from this file only, keeping it small.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import subprocess
 import threading

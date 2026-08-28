@@ -820,18 +820,15 @@ class LocalExtractor:
             failures: list[str] = []
             if bool(self.settings.get("rapidocr_enabled", True)):
                 output_path = temp / "rapidocr-result.json"
-                worker = Path(__file__).resolve().with_name("local_ocr.py")
                 try:
                     runner = (
-                        [str(sys.executable), "--ocr-worker"]
+                        [str(sys.executable), "--ocr-worker", "extract"]
                         if getattr(sys, "frozen", False)
-                        else [sys.executable]
+                        else [sys.executable, str(Path(__file__).resolve().with_name("local_ocr.py")), "extract"]
                     )
                     completed = subprocess.run(
                         [
                             *runner,
-                            str(worker),
-                            "extract",
                             "--output",
                             str(output_path),
                             *[str(image) for image in images],

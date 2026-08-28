@@ -23,14 +23,27 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
-try:
-    import matplotlib
-    matplotlib.use('Agg')  # Non-interactive backend for embedding
-    from matplotlib.figure import Figure
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+Figure = None
+FigureCanvasTkAgg = None
+MATPLOTLIB_AVAILABLE = False
+
+
+def _load_matplotlib() -> bool:
+    """Load charting only when a chart is actually rendered."""
+    global Figure, FigureCanvasTkAgg, MATPLOTLIB_AVAILABLE
+    if MATPLOTLIB_AVAILABLE:
+        return True
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as canvas_type
+        from matplotlib.figure import Figure as figure_type
+    except ImportError:
+        return False
+    Figure = figure_type
+    FigureCanvasTkAgg = canvas_type
     MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    MATPLOTLIB_AVAILABLE = False
+    return True
 
 from manager_chat import (
     DEFAULT_FREE_MODEL,
@@ -4168,7 +4181,7 @@ class RestaurantCostControllerGUI:
             ).pack(anchor="w")
             spark_container = ttk.Frame(card)
             spark_container.pack(fill="x", pady=(4, 0))
-            if MATPLOTLIB_AVAILABLE and len(metric["sparkline"]) > 1:
+            if _load_matplotlib() and len(metric["sparkline"]) > 1:
                 fig = Figure(figsize=(1.5, 0.4), dpi=72, facecolor='white')
                 ax = fig.add_subplot(111)
                 ax.plot(range(len(metric["sparkline"])), metric["sparkline"], color='#0F6B78', linewidth=1)
@@ -4191,7 +4204,7 @@ class RestaurantCostControllerGUI:
             for child in self._sales_chart_frame.winfo_children():
                 child.destroy()
             sales_chart = dashboard["sales_trend"]
-            if MATPLOTLIB_AVAILABLE and sales_chart["available"]:
+            if sales_chart["available"] and _load_matplotlib():
                 fig = Figure(figsize=(4.2, 2.1), dpi=72, facecolor='white')
                 ax = fig.add_subplot(111)
                 ax.bar(range(len(sales_chart["values"])), sales_chart["values"], color='#0F6B78')
@@ -4208,7 +4221,7 @@ class RestaurantCostControllerGUI:
             for child in self._margin_chart_frame.winfo_children():
                 child.destroy()
             margin_chart = dashboard["margin_trend"]
-            if MATPLOTLIB_AVAILABLE and margin_chart["available"]:
+            if margin_chart["available"] and _load_matplotlib():
                 fig = Figure(figsize=(3.5, 2.1), dpi=72, facecolor='white')
                 ax = fig.add_subplot(111)
                 actual = margin_chart["actual"]
@@ -4228,7 +4241,7 @@ class RestaurantCostControllerGUI:
             for child in self._cost_chart_frame.winfo_children():
                 child.destroy()
             cost_chart = dashboard["cost_breakdown"]
-            if MATPLOTLIB_AVAILABLE and cost_chart["available"]:
+            if cost_chart["available"] and _load_matplotlib():
                 fig = Figure(figsize=(2.8, 2.1), dpi=72, facecolor='white')
                 ax = fig.add_subplot(111)
                 sizes = [item["amount"] for item in cost_chart["items"]]
@@ -4317,7 +4330,7 @@ class RestaurantCostControllerGUI:
         ttk.Button(dlg, text="Apply", command=apply).pack(side="right", padx=12, pady=12)
 
     def _draw_kpi_sparkline(self, parent: ttk.Frame, values: list, color: str = "#0F6B78") -> None:
-        if not MATPLOTLIB_AVAILABLE or not values:
+        if not values or not _load_matplotlib():
             return
         fig = Figure(figsize=(1.8, 0.6), dpi=72, facecolor='white')
         ax = fig.add_subplot(111)

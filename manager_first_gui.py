@@ -219,27 +219,31 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
             self.page_sections[frame] = section
 
         self._build_sidebar()
-        self._build_dashboard()
-        self._build_work_hub()
-        self._build_insights_hub()
-        self._build_chat()
-        self._build_more_hub()
-        self._build_simple_settings()
-        self._build_intake()
-        self._build_review()
-        self._build_auto_upload_history()
-        self._build_exceptions()
-        self._build_receiving()
-        self._build_items()
-        self._build_inventory()
-        self._build_orders()
-        self._build_data()
-        self._build_phase2()
-        self._build_phase3()
-        self._build_margin_memory()
-        self._build_settings()
-        self._build_security()
-        self._build_log()
+        self._page_builders: dict[tk.Widget, Callable[[], None]] = {
+            self.dashboard_tab: self._build_dashboard,
+            self.work_hub_tab: self._build_work_hub,
+            self.insights_hub_tab: self._build_insights_hub,
+            self.chat_tab: self._build_chat,
+            self.more_hub_tab: self._build_more_hub,
+            self.simple_settings_tab: self._build_simple_settings,
+            self.intake_tab: self._build_intake,
+            self.review_tab: self._build_review,
+            self.auto_upload_tab: self._build_auto_upload_history,
+            self.exceptions_tab: self._build_exceptions,
+            self.receiving_tab: self._build_receiving,
+            self.items_tab: self._build_items,
+            self.inventory_tab: self._build_inventory,
+            self.orders_tab: self._build_orders,
+            self.data_tab: self._build_data,
+            self.phase2_tab: self._build_phase2,
+            self.phase3_tab: self._build_phase3,
+            self.margin_memory_tab: self._build_margin_memory,
+            self.settings_tab: self._build_settings,
+            self.security_tab: self._build_security,
+            self.log_tab: self._build_log,
+        }
+        self._built_pages: set[tk.Widget] = set()
+        self._built_pages.add(self.dashboard_tab)
 
         self.status_var = tk.StringVar(value="Select or add a restaurant workspace.")
         status = ttk.Label(
@@ -447,6 +451,15 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
         self.sidebar_outer.configure(width=width)
 
     def show_page(self, frame: tk.Widget, section: str | None = None) -> None:
+        if frame not in self._built_pages:
+            builder = self._page_builders.get(frame)
+            if builder:
+                try:
+                    builder()
+                except Exception:
+                    self._built_pages.discard(frame)
+                    raise
+                self._built_pages.add(frame)
         self.notebook.select(frame)
         self._set_active_section(section or self.page_sections.get(frame, "more"))
 

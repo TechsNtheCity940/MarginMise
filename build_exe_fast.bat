@@ -32,7 +32,7 @@ echo [4/5] Building executable (UPX disabled, this may take 10-20 minutes)...
 echo NOTE: If the build freezes for more than 30 minutes, press Ctrl+C and try build_exe_dir.bat instead
 echo.
 
-pyinstaller marginmise.spec --upx-dir=none
+python -m PyInstaller marginmise.spec --noconfirm --clean
 
 REM Test the executable
 echo.
@@ -47,11 +47,8 @@ if exist "dist\MarginMise.exe" (
     echo To distribute:
     echo   1. Copy dist\MarginMise.exe to any Windows PC
     echo   2. On first run, it will:
-    echo      - Install Python if needed
-    echo      - Create a virtual environment
-    echo      - Install all dependencies
-    echo      - Download Tesseract OCR (silent)
-    echo      - Download the local AI model
+    echo      - Start the bundled GUI directly
+    echo      - Launch OCR and CostPilot only when requested
     echo   3. No Python installation needed on target machine
     echo.
 ) else (

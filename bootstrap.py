@@ -28,6 +28,7 @@ from datetime import datetime
 APP_NAME = "MarginMise"
 LOCALAPPDATA = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
 INSTALL_DIR = LOCALAPPDATA / APP_NAME
+APP_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 REQUIREMENTS_FILE = "requirements.txt"
 
 # ========== LOGGING ==========
@@ -313,6 +314,10 @@ def main() -> int:
     """Main entry point for the bootstrapper."""
     log_event("MarginMise executable launched")
 
+    if getattr(sys, "frozen", False):
+        log_event("Frozen bootstrap invocation rejected; build MarginMise from launch_gui.py")
+        return 2
+
     if should_bootstrap():
         log_event("First-run setup required")
         # Run bootstrap in a separate thread so we can show progress
@@ -322,8 +327,9 @@ def main() -> int:
     else:
         log_event("Skipping bootstrap (already installed)")
 
-    # Launch GUI
-    return launch_gui()
+    # The source installer prepares the environment; the GUI is launched by
+    # the user or by the separately packaged MarginMise executable.
+    return 0
 
 
 if __name__ == "__main__":

@@ -20,56 +20,13 @@ pip install --disable-pip-version-check --no-input --upgrade pip
 pip install --disable-pip-version-check --no-input -r requirements.txt
 pip install --disable-pip-version-check --no-input pyinstaller==6.13.0 pillow
 
-REM Build with minimal spec
+REM Build with the production spec. The executable entry point is launch_gui.py.
 echo.
 echo [3/5] Building small onefile executable...
 echo Using PyInstaller 6.13.0 with minimal hooks.
 echo.
 
-pyinstaller --onefile --windowed ^
-  --name "MarginMise" ^
-  --icon assets/app_icon_256.png ^
-  --add-data "assets;assets" ^
-  --hidden-import invoice_pipeline ^
-  --hidden-import bulk_ingestion ^
-  --hidden-import recipe_costing ^
-  --hidden-import margin_memory ^
-  --hidden-import manager_chat ^
-  --hidden-import local_ai ^
-  --hidden-import local_ocr ^
-  --hidden-import inventory_planning ^
-  --hidden-import phase2_features ^
-  --hidden-import phase3_features ^
-  --hidden-import operational_controls ^
-  --hidden-import excel_io ^
-  --hidden-import dashboard_service ^
-  --hidden-import dashboard_widgets ^
-  --hidden-import review_copilot ^
-  --hidden-import launch_gui ^
-  --hidden-import restaurant_cost_gui ^
-  --hidden-import manager_first_gui ^
-  --hidden-import events ^
-  --hidden-import shift_reports ^
-  --hidden-import weekly_invoice_log ^
-  --hidden-import src.theme ^
-  --hidden-import bootstrap ^
-  --exclude-module hermes_agent ^
-  --exclude-module hermes_backend ^
-  --exclude-module hermes ^
-  --exclude-module tkinter ^
-  --exclude-module matplotlib ^
-  --exclude-module PyQt5 ^
-  --exclude-module PyQt6 ^
-  --exclude-module PySide2 ^
-  --exclude-module PySide6 ^
-  --exclude-module numpy ^
-  --exclude-module pandas ^
-  --exclude-module scipy ^
-  --exclude-module sklearn ^
-  --exclude-module torch ^
-  --exclude-module tensorflow ^
-  --clean ^
-  bootstrap.py
+python -m PyInstaller marginmise.spec --noconfirm --clean
 
 REM Test the executable
 echo.

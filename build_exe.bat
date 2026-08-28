@@ -39,11 +39,8 @@ if exist "dist\MarginMise.exe" (
     echo.
     echo To distribute:
     echo   1. Copy dist\MarginMise.exe to any Windows PC
-    echo   2. On first run, it will:
-    echo      - Extract to %%LOCALAPPDATA%%\MarginMise
-    echo      - Download Tesseract OCR (silent)
-    echo      - Download llama.cpp + LFM2.5 model (silent, ~250MB)
-    echo   3. No Python installation needed on target machine
+    echo   2. The packaged GUI starts directly; it does not install Python or create a venv.
+    echo   3. OCR and CostPilot runtimes start only when those features are used.
     echo.
 ) else (
     echo.

@@ -5,6 +5,11 @@ import os
 from pathlib import Path
 
 hidden_imports = [
+    'PIL',
+    'rapidocr',
+    'onnxruntime',
+    'matplotlib.backends.backend_tkagg',
+    'matplotlib.figure',
     'invoice_pipeline',
     'bulk_ingestion',
     'recipe_costing',
@@ -28,10 +33,9 @@ hidden_imports = [
     'shift_reports',
     'weekly_invoice_log',
     'src.theme',
-    'launch_gui',
 ]
 
-datas = [(str(p), str(p.parent if p.is_file() else p)) for p in Path('assets').rglob('*') if p.is_file()]
+datas = [(str(p), str(p.parent.relative_to(Path('.'))) if p.parent != Path('.') else '.') for p in Path('assets').rglob('*') if p.is_file()]
 
 a = Analysis(
     ['launch_gui.py'],

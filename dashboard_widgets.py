@@ -6,15 +6,27 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable
 
-try:
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-    from matplotlib.figure import Figure
+FigureCanvasTkAgg = None
+Figure = None
+MATPLOTLIB_AVAILABLE = False
 
+
+def _load_matplotlib() -> bool:
+    """Load charting only when the dashboard has chart data to render."""
+    global FigureCanvasTkAgg, Figure, MATPLOTLIB_AVAILABLE
+    if MATPLOTLIB_AVAILABLE:
+        return True
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as canvas_type
+        from matplotlib.figure import Figure as figure_type
+    except ImportError:
+        return False
+    FigureCanvasTkAgg = canvas_type
+    Figure = figure_type
     MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    FigureCanvasTkAgg = None  # type: ignore[assignment]
-    Figure = None  # type: ignore[assignment]
-    MATPLOTLIB_AVAILABLE = False
+    return True
 
 from src.theme import (
     BORDER_COLOR,
@@ -521,7 +533,7 @@ class DashboardView:
                 ).pack(anchor="e")
             chart_host = tk.Frame(card.body, bg=WHITE)
             chart_host.pack(fill="both", expand=True, pady=(6, 0))
-            if data.get("available") and MATPLOTLIB_AVAILABLE:
+            if data.get("available") and _load_matplotlib():
                 renderer(chart_host, data)
             else:
                 self._empty_state(chart_host, data.get("empty_message", "No data available."))

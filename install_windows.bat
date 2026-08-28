@@ -2,13 +2,8 @@
 REM ============================================================
 REM MarginMise Windows Bootstrapper
 REM ============================================================
-REM This installer handles the complete setup process:
-REM 1. Find or install Python 3.11+
-REM 2. Create virtual environment
-REM 3. Install all Python dependencies
-REM 4. Silently install Tesseract OCR
-REM 5. Download llama.cpp + LFM2.5 model
-REM 6. Create shortcuts
+REM This source installer is for developers. Packaged users should run
+REM MarginMise.exe from the PyInstaller build or NSIS installer.
 REM ============================================================
 
 setlocal
@@ -22,7 +17,7 @@ echo.
 REM Create Logs directory
 if not exist "Logs" mkdir "Logs"
 
-REM Run the bootstrapper
+REM Run source bootstrap setup (never used by the packaged GUI executable)
 echo [Setup] Starting installation...
 python -m bootstrap
 
