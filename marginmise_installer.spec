@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Lightweight installer EXE spec for MarginMise.
 
-Builds a small bootstrapper that extracts the full app to
+Builds a small installer EXE that installs the full app to
 %LOCALAPPDATA%\MarginMise\ and sets up prerequisites.
 """
 import sys
@@ -13,7 +13,7 @@ hidden_imports = [
 ]
 
 a = Analysis(
-    ['bootstrap_mini.py'],
+    ['launch_gui.py'],
     pathex=['.'],
     binaries=[],
     datas=[],

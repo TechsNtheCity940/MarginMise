@@ -28,13 +28,13 @@ hidden_imports = [
     'shift_reports',
     'weekly_invoice_log',
     'src.theme',
-    'bootstrap',
+    'launch_gui',
 ]
 
 datas = [(str(p), str(p.parent if p.is_file() else p)) for p in Path("assets").rglob("*") if p.is_file()]
 
 a = Analysis(
-    ['bootstrap.py'],
+    ['launch_gui.py'],
     pathex=['.'],
     binaries=[],
     datas=datas,

@@ -822,9 +822,14 @@ class LocalExtractor:
                 output_path = temp / "rapidocr-result.json"
                 worker = Path(__file__).resolve().with_name("local_ocr.py")
                 try:
+                    runner = (
+                        [str(sys.executable), "--ocr-worker"]
+                        if getattr(sys, "frozen", False)
+                        else [sys.executable]
+                    )
                     completed = subprocess.run(
                         [
-                            sys.executable,
+                            *runner,
                             str(worker),
                             "extract",
                             "--output",
