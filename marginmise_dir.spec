@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 
 hidden_imports = [
+    'numpy',
+    'onnx',
+    'cv2',
     'PIL',
     'rapidocr',
     'onnxruntime',

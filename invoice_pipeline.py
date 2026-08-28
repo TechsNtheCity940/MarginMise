@@ -56,6 +56,69 @@ from phase3_features import Phase3Service
 from recipe_costing import RecipeCostingService
 from margin_memory import MarginMemoryService
 from review_copilot import ReviewCopilotService
+from local_ocr import _line_texts
+
+
+def _run_rapidocr_in_process(image_paths: Sequence[Path], timeout: int = 120) -> dict[str, Any]:
+    """Run RapidOCR in the current process with a memoized engine.
+
+    Loading the ONNX detection + recognition models is the expensive part.
+    Memoizing the engine means a 35-invoice folder loads the model once instead
+    of 35 times (the old per-file subprocess design). The engine is released
+    between calls only under memory pressure; on a normal workstation keeping it
+    warm is far faster than reloading per document.
+    """
+    from rapidocr import RapidOCR
+
+    engine = _RAPIDOCR_ENGINE.engine
+    if engine is None:
+        engine = RapidOCR(
+            params={
+                "Global.log_level": "error",
+                "EngineConfig.onnxruntime.intra_op_num_threads": 2,
+                "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+                "EngineConfig.onnxruntime.enable_cpu_mem_arena": False,
+            }
+        )
+        _RAPIDOCR_ENGINE.engine = engine
+
+    pages: list[dict[str, Any]] = []
+    all_scores: list[float] = []
+    for index, image_path in enumerate(image_paths, 1):
+        output = engine(image_path)
+        raw_texts = getattr(output, "txts", None)
+        raw_boxes = getattr(output, "boxes", None)
+        raw_scores = getattr(output, "scores", None)
+        texts = list(raw_texts) if raw_texts is not None else []
+        boxes = list(raw_boxes) if raw_boxes is not None else []
+        scores = [float(value) for value in raw_scores] if raw_scores is not None else []
+        all_scores.extend(scores)
+        lines = _line_texts(boxes, texts) if boxes else [" ".join(str(text).split()) for text in texts]
+        pages.append(
+            {
+                "page": index,
+                "path": str(image_path),
+                "text": "\n".join(lines).strip(),
+                "average_confidence": (sum(scores) / len(scores)) if scores else 0.0,
+            }
+        )
+    return {
+        "engine": "rapidocr-onnx",
+        "pages": pages,
+        "text": "\n\n".join(
+            f"--- PAGE {page['page']} ---\n{page['text']}" for page in pages if page["text"]
+        ).strip(),
+        "average_confidence": (sum(all_scores) / len(all_scores)) if all_scores else 0.0,
+    }
+
+
+# Module-level memoized RapidOCR engine (one load per process).
+class _RapidOCREngineHolder:
+    engine = None
+
+
+_RAPIDOCR_ENGINE = _RapidOCREngineHolder()
+
 
 MONEY = Decimal("0.01")
 SUPPORTED_SOURCE_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".json"}
@@ -798,7 +861,14 @@ class LocalExtractor:
         return ""
 
     def _local_ocr_fallback(self, source: Path) -> tuple[dict[str, Any], float, str]:
-        """Extract a scan locally, releasing model memory when the job ends."""
+        """Extract a scan locally.
+
+        RapidOCR runs in-process with a memoized engine so the ONNX model is
+        loaded once per session instead of once per file (the old design
+        spawned a subprocess per document, which re-loaded the model 35 times
+        for a 35-invoice folder and could take 30+ minutes on a low-end PC).
+        Tesseract remains a fully-local subprocess fallback.
+        """
         if not bool(self.settings.get("local_ocr_enabled", True)):
             raise ExtractionFailed("Local OCR is disabled.")
 
@@ -821,33 +891,8 @@ class LocalExtractor:
 
             failures: list[str] = []
             if bool(self.settings.get("rapidocr_enabled", True)):
-                output_path = temp / "rapidocr-result.json"
                 try:
-                    runner = (
-                        [str(sys.executable), "--ocr-worker", "extract"]
-                        if getattr(sys, "frozen", False)
-                        else [sys.executable, str(Path(__file__).resolve().with_name("local_ocr.py")), "extract"]
-                    )
-                    completed = subprocess.run(
-                        [
-                            *runner,
-                            "--output",
-                            str(output_path),
-                            *[str(image) for image in images],
-                        ],
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        timeout=timeout,
-                        creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0,
-                    )
-                    if completed.returncode != 0 or not output_path.is_file():
-                        detail = (completed.stderr or completed.stdout or "no error text").strip()
-                        raise ExtractionFailed(
-                            f"RapidOCR worker failed with exit code {completed.returncode}: {detail[-800:]}"
-                        )
-                    result = json.loads(output_path.read_text(encoding="utf-8"))
+                    result = _run_rapidocr_in_process(images, timeout=timeout)
                     raw_text = str(result.get("text") or "").strip()
                     if not self._has_meaningful_text(raw_text):
                         raise ExtractionFailed("RapidOCR did not extract usable invoice text.")
@@ -856,8 +901,7 @@ class LocalExtractor:
                     payload["_raw_text"] = raw_text
                     ocr_confidence = self._confidence_value(result.get("average_confidence"))
                     payload.setdefault("extraction_notes", []).append(
-                        f"RapidOCR processed the scan locally in an isolated worker "
-                        f"(average text confidence {ocr_confidence:.1%})."
+                        f"RapidOCR processed the scan locally (average text confidence {ocr_confidence:.1%})."
                     )
                     payload["extraction_confidence"] = confidence
                     return payload, confidence, "rapidocr-onnx+local-parser"
