@@ -3,10 +3,10 @@ setlocal
 cd /d "%~dp0"
 
 echo ========================================
-echo MarginMise Windows Build (small onefile)
+echo MarginMise Windows Build (low-memory folder mode)
 echo ========================================
 echo.
-echo This build uses a minimal spec to avoid memory/DLL errors.
+echo This build uses the onedir spec to avoid onefile extraction overhead.
 echo.
 
 REM Create virtual environment
@@ -20,23 +20,23 @@ pip install --disable-pip-version-check --no-input --upgrade pip
 pip install --disable-pip-version-check --no-input -r requirements.txt
 pip install --disable-pip-version-check --no-input pyinstaller==6.13.0 pillow
 
-REM Build with the production spec. The executable entry point is launch_gui.py.
+REM Build with the production onedir spec. The executable entry point is launch_gui.py.
 echo.
-echo [3/5] Building small onefile executable...
-echo Using PyInstaller 6.13.0 with minimal hooks.
+echo [3/5] Building folder-based executable...
+echo Using PyInstaller 6.13.0 with the low-memory onedir layout.
 echo.
 
-python -m PyInstaller marginmise.spec --noconfirm --clean
+python -m PyInstaller marginmise_dir.spec --noconfirm --clean
 
 REM Test the executable
 echo.
 echo [4/5] Build complete.
-if exist "dist\MarginMise.exe" (
+if exist "dist\MarginMise\MarginMise.exe" (
     echo.
     echo ========================================
     echo BUILD SUCCESSFUL!
     echo ========================================
-    echo Output: dist\MarginMise.exe
+    echo Output: dist\MarginMise\MarginMise.exe
     echo.
     echo To distribute:
     echo   1. Copy dist\MarginMise.exe to any Windows PC

@@ -915,7 +915,7 @@ count, payment, or database change occurred."""
             user_prompt=json.dumps(packet, ensure_ascii=True, separators=(",", ":")),
             schema=schema,
             timeout=timeout,
-            context_size=8192,
+            context_size=2048,
             max_tokens=350,
         )
         answer = str(result.get("answer") or "").strip()

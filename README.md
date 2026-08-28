@@ -11,10 +11,10 @@ MarginMise is an all-in-one restaurant cost management system that runs entirely
 ### Windows
 
 1. Download the latest release from the [Releases](https://github.com/TechsNtheCity940/MarginMise/releases) page, or build from source.
-2. Extract the zip and run `MarginMise.exe` or `install_windows.bat`.
+2. Extract the zip and run `MarginMise\MarginMise.exe`.
 3. The packaged application starts directly from its bundled Python runtime.
 4. OCR and CostPilot runtimes are started only when those features are used.
-5. To distribute: copy `dist/MarginMise.exe` to any Windows PC. No Python installation or runtime venv is needed on the target machine.
+5. To distribute: copy the complete `dist/MarginMise/` folder to any Windows PC. No Python installation or runtime venv is needed on the target machine.
 
 ### macOS / Linux
 
@@ -122,13 +122,9 @@ python launch_gui.py
 
 ### Windows Installer
 
-For end users, run `install_windows.bat` — it will:
-1. Find or install Python 3.11+
-2. Create a virtual environment
-3. Install all Python dependencies
-4. Silently install Tesseract OCR
-5. Download llama.cpp + LFM2.5 model
-6. Create desktop/start menu shortcuts
+For end users, run the released NSIS installer. It installs the bundled
+application and creates desktop/Start Menu shortcuts. `install_windows.bat` is
+only a source-development setup helper.
 
 ### Running
 
@@ -166,9 +162,9 @@ MarginMise can be packaged as a standalone Windows executable so managers don't 
    build_exe.bat
    ```
 
-3. **Find the output:** The executable will be at `dist/MarginMise.exe`
+3. **Find the output:** The low-memory executable will be at `dist/MarginMise/MarginMise.exe`
 
-4. **Distribute:** Copy `dist/MarginMise.exe` to any Windows PC. It will:
+4. **Distribute:** Copy the entire `dist/MarginMise/` folder to any Windows PC. It will:
    - Start the bundled GUI directly
    - Start OCR and CostPilot helper processes only when requested
    - Keep downloaded OCR/AI data under `%LOCALAPPDATA%\MarginMise`
@@ -184,7 +180,7 @@ pyinstaller marginmise.spec
 ```
 
 The spec file includes:
-- One-file executable with embedded Python runtime
+- Folder-based executable with an embedded Python runtime
 - Windowed mode (no console popup)
 - All Python modules explicitly imported
 - Assets (icons, logos) bundled as data files

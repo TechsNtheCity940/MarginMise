@@ -77,6 +77,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "local_ocr_timeout_seconds": 120,
     "pdf_render_dpi": 200,
     "max_pdf_pages": 30,
+    "max_source_file_mb": 50,
     "known_vendors": [],
     "forecast_history_months": 3,
     "default_lead_time_days": 2.0,
@@ -124,6 +125,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "auto_upload_folder": "",
     "auto_upload_scan_seconds": 2.0,
     "auto_upload_stability_seconds": 2.0,
+    "auto_upload_max_files_per_cycle": 2,
     "initial_document_discovery_pending": False,
     "document_discovery_max_files": 5000,
     "document_discovery_max_file_mb": 100,
@@ -949,6 +951,16 @@ class InvoiceExtractor:
         self.local = LocalExtractor(self.settings, workspace.folders["logs"])
 
     def extract(self, source: Path) -> ExtractionResult:
+        max_bytes = max(1, int(self.settings.get("max_source_file_mb", 50))) * 1024 * 1024
+        try:
+            source_size = source.stat().st_size
+        except OSError as exc:
+            raise ExtractionFailed(f"Could not inspect source file: {source}") from exc
+        if source_size > max_bytes:
+            raise ExtractionFailed(
+                f"Source file is {source_size / 1024 / 1024:.1f} MiB; "
+                f"the configured limit is {max_bytes / 1024 / 1024:.0f} MiB."
+            )
         suffix = source.suffix.lower()
         if suffix == ".json":
             data = json.loads(source.read_text(encoding="utf-8"))

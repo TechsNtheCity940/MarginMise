@@ -2095,10 +2095,12 @@ class AutoUploadCoordinator:
         event_callback: Callable[[dict[str, Any]], None] | None = None,
         *,
         scan_interval: float = 2.0,
+        max_files_per_cycle: int = 2,
     ):
         self.restaurant_provider = restaurant_provider
         self.event_callback = event_callback
         self.scan_interval = max(0.75, float(scan_interval))
+        self.max_files_per_cycle = max(1, min(10, int(max_files_per_cycle)))
         self.stop_event = threading.Event()
         self.wake_event = threading.Event()
         self.thread: threading.Thread | None = None
@@ -2215,7 +2217,8 @@ class AutoUploadCoordinator:
                 path,
                 classification,
             ))
-        for _, _, path, classification in sorted(ready):
+        max_per_cycle = max(1, min(10, int(settings.get("auto_upload_max_files_per_cycle", self.max_files_per_cycle))))
+        for _, _, path, classification in sorted(ready)[:max_per_cycle]:
             if self.stop_event.is_set():
                 return
             try:

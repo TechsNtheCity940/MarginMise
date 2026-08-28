@@ -30,28 +30,33 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --upgrade pip
           python -m pip install --disable-pip-version-check -r requirements.txt
-          python -m pip install --disable-pip-version-check pyinstaller
+          python -m pip install --disable-pip-version-check pyinstaller==6.13.0
 
-      - name: Build MarginMise.exe
+      - name: Build low-memory onedir application
         shell: pwsh
         run: |
-          python -m PyInstaller marginmise.spec --noconfirm --clean
+          python -m PyInstaller marginmise_dir.spec --noconfirm --clean
 
       - name: Verify build
         shell: pwsh
         run: |
-          if (-not (Test-Path 'dist\MarginMise.exe')) {
-            throw 'Build finished without creating dist\MarginMise.exe'
+          if (-not (Test-Path 'dist\MarginMise\MarginMise.exe')) {
+            throw 'Build finished without creating dist\MarginMise\MarginMise.exe'
           }
-          $exe = Get-Item 'dist\MarginMise.exe'
+          $exe = Get-Item 'dist\MarginMise\MarginMise.exe'
           Write-Host "Built: $($exe.FullName)"
           Write-Host "Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
 
       - name: Smoke test executable process behavior
         shell: pwsh
         run: |
-          $exe = (Resolve-Path 'dist\MarginMise.exe').Path
-          $process = Start-Process -FilePath $exe -PassThru
+          $exe = (Resolve-Path 'dist\MarginMise\MarginMise.exe').Path
+          # The path is produced by this job, not by untrusted event data.
+          $check = Start-Process -FilePath $exe -ArgumentList '--startup-check' -Wait -PassThru
+          if ($check.ExitCode -ne 0) {
+            throw "MarginMise startup check failed with code $($check.ExitCode)"
+          }
+          $process = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
           try {
             Start-Sleep -Seconds 8
             if ($process.HasExited) {
@@ -72,7 +77,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MarginMise-Windows-EXE
-          path: dist/MarginMise.exe
+          path: dist/MarginMise
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

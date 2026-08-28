@@ -22,8 +22,22 @@ if not exist "%VENV%\Scripts\python.exe" (
     "%PYTHON%" -m venv "%VENV%"
 )
 call "%VENV%\Scripts\activate.bat"
+if errorlevel 1 (
+    echo BUILD FAILED while activating build environment
+    exit /b 1
+)
 echo Installing build deps...
+pip install -q --disable-pip-version-check -r requirements.txt
+if errorlevel 1 (
+    echo BUILD FAILED while installing requirements
+    exit /b 1
+)
 pip install -q --disable-pip-version-check pyinstaller==6.13.0 Pillow
+if errorlevel 1 (
+    echo BUILD FAILED while installing PyInstaller
+    exit /b 1
+)
+if exist "%DIST_FOLDER%" rmdir /s /q "%DIST_FOLDER%"
 echo Running PyInstaller...
 pyinstaller --distpath "%DIST%" --workpath "%CD%\build" marginmise_dir.spec --clean -y
 if errorlevel 1 (

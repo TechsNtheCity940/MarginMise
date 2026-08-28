@@ -32,20 +32,20 @@ echo [4/5] Building executable (UPX disabled, this may take 10-20 minutes)...
 echo NOTE: If the build freezes for more than 30 minutes, press Ctrl+C and try build_exe_dir.bat instead
 echo.
 
-python -m PyInstaller marginmise.spec --noconfirm --clean
+python -m PyInstaller marginmise_dir.spec --noconfirm --clean
 
 REM Test the executable
 echo.
 echo [5/5] Build complete.
-if exist "dist\MarginMise.exe" (
+if exist "dist\MarginMise\MarginMise.exe" (
     echo.
     echo ========================================
     echo BUILD SUCCESSFUL!
     echo ========================================
-    echo Output: dist\MarginMise.exe
+    echo Output: dist\MarginMise\MarginMise.exe
     echo.
     echo To distribute:
-    echo   1. Copy dist\MarginMise.exe to any Windows PC
+    echo   1. Copy the entire dist\MarginMise folder to any Windows PC
     echo   2. On first run, it will:
     echo      - Start the bundled GUI directly
     echo      - Launch OCR and CostPilot only when requested

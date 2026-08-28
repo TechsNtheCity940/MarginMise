@@ -156,17 +156,27 @@ class RestaurantCostControllerGUI:
         self.worker_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.processing = False
         self.document_discovery_busy = False
+        self.workspace_maintenance_busy = False
         self.auto_upload_coordinator = AutoUploadCoordinator(
             lambda: list(self.registry.restaurants),
             lambda payload: self.worker_queue.put(("auto_upload", payload)),
-            scan_interval=2.0,
+            scan_interval=5.0,
+            max_files_per_cycle=2,
         )
         self._build_style()
         self._build_shell()
         self._load_initial_restaurant()
-        self.auto_upload_coordinator.start()
+        self.root.after(1200, self._start_auto_upload)
         self.root.after(150, self._drain_worker_queue)
         self.root.after(800, self._check_costpilot_first_run)
+
+    def _start_auto_upload(self) -> None:
+        """Start folder polling after the initial window has become responsive."""
+        try:
+            if self.root.winfo_exists():
+                self.auto_upload_coordinator.start()
+        except tk.TclError:
+            return
 
     def _build_style(self) -> None:
         style = ttk.Style()
@@ -1615,24 +1625,6 @@ class RestaurantCostControllerGUI:
             self.current_user = user
             self.pipeline.controls.current_user = user
             self.pipeline.phase3.set_location_provider(lambda: list(self.registry.restaurants))
-            if settings.get("auto_recover_invoice_headers", True) and user and user.can("invoices.review"):
-                try:
-                    review_summary = self.pipeline.batch_process_reviews(
-                        None,
-                        approve_eligible=bool(settings.get("auto_approve_recovered_invoice_headers", True)),
-                        explicit_approval=False,
-                    )
-                    if review_summary.get("approved"):
-                        self.log(f"Automatic invoice recovery approved {review_summary['approved']} invoice(s).")
-                except Exception as recovery_exc:
-                    self.log(f"Automatic invoice header recovery warning: {recovery_exc}")
-            if settings.get("auto_verify_clean_receiving", True) and user and user.can("receiving.verify"):
-                try:
-                    receiving_summary = self.pipeline.auto_verify_receiving()
-                    if receiving_summary.get("verified"):
-                        self.log(f"Automatic receiving verified {receiving_summary['verified']} delivery record(s).")
-                except Exception as receiving_exc:
-                    self.log(f"Automatic receiving warning: {receiving_exc}")
             self.user_status_var.set(f"{user.display_name} | {user.role}" if user else "Local mode")
             self.chat_service = ManagerChatService(
                 self.workspace, self.pipeline, self.backend, self.current_gui_state
@@ -1645,20 +1637,7 @@ class RestaurantCostControllerGUI:
             self.log(f"Automatic upload folder: {upload_folder}")
             self.auto_upload_coordinator.scan_now()
             self.pipeline.controls.audit("workspace.open", "workspace", str(self.workspace.root), "Opened restaurant workspace")
-            try:
-                backup = self.pipeline.automatic_backup_if_due()
-                if backup:
-                    self.log(f"Automatic backup created: {backup.name}")
-            except Exception as backup_exc:
-                self.log(f"Automatic backup warning: {backup_exc}")
-            if settings.get("auto_generate_weekly_order_draft", True) and self.has_permission("orders.generate"):
-                try:
-                    draft = self.pipeline.ensure_weekly_order_draft()
-                    if draft.get("created"):
-                        self.pipeline.controls.audit("order.auto_draft", "order_batch", draft.get("batch_id"), "Automatically created weekly draft order batch")
-                        self.log(f"Automatically created weekly draft order batch {draft['batch_id']}.")
-                except Exception as draft_exc:
-                    self.log(f"Weekly draft order warning: {draft_exc}")
+            self._start_workspace_maintenance(workspace, self.pipeline, settings, user)
             self.refresh_all()
             if bool(settings.get("initial_document_discovery_pending")):
                 discovery_source = Path(
@@ -1673,6 +1652,70 @@ class RestaurantCostControllerGUI:
         except Exception as exc:
             messagebox.showerror("Workspace error", str(exc))
             self.log(traceback.format_exc())
+
+    def _start_workspace_maintenance(
+        self,
+        workspace: RestaurantWorkspace,
+        pipeline: InvoicePipeline,
+        settings: dict[str, Any],
+        user: AuthenticatedUser | None,
+    ) -> None:
+        """Run nonessential first-open maintenance away from Tk's event loop."""
+        if self.workspace_maintenance_busy:
+            return
+        self.workspace_maintenance_busy = True
+        expected_workspace = str(workspace.root)
+        expected_pipeline = pipeline
+
+        def worker() -> None:
+            messages: list[str] = []
+            try:
+                if settings.get("auto_recover_invoice_headers", True) and user and user.can("invoices.review"):
+                    try:
+                        result = pipeline.batch_process_reviews(
+                            None,
+                            approve_eligible=bool(settings.get("auto_approve_recovered_invoice_headers", True)),
+                            explicit_approval=False,
+                        )
+                        approved = int(result.get("approved") or 0)
+                        if approved:
+                            messages.append(f"Automatic invoice recovery approved {approved} invoice(s).")
+                    except Exception as exc:
+                        messages.append(f"Automatic invoice recovery warning: {exc}")
+                if settings.get("auto_verify_clean_receiving", True) and user and user.can("receiving.verify"):
+                    try:
+                        result = pipeline.auto_verify_receiving()
+                        verified = int(result.get("verified") or 0)
+                        if verified:
+                            messages.append(f"Automatic receiving verified {verified} delivery record(s).")
+                    except Exception as exc:
+                        messages.append(f"Automatic receiving warning: {exc}")
+                try:
+                    backup = pipeline.automatic_backup_if_due()
+                    if backup:
+                        messages.append(f"Automatic backup created: {backup.name}")
+                except Exception as exc:
+                    messages.append(f"Automatic backup warning: {exc}")
+                if settings.get("auto_generate_weekly_order_draft", True) and user and user.can("orders.generate"):
+                    try:
+                        draft = pipeline.ensure_weekly_order_draft()
+                        if draft.get("created"):
+                            pipeline.controls.audit(
+                                "order.auto_draft",
+                                "order_batch",
+                                draft.get("batch_id"),
+                                "Automatically created weekly draft order batch",
+                            )
+                            messages.append(f"Automatically created weekly draft order batch {draft['batch_id']}.")
+                    except Exception as exc:
+                        messages.append(f"Weekly draft order warning: {exc}")
+            finally:
+                self.worker_queue.put((
+                    "workspace_maintenance_done",
+                    {"workspace": expected_workspace, "messages": messages},
+                ))
+
+        threading.Thread(target=worker, name="MarginMise-Workspace-Maintenance", daemon=True).start()
 
     def open_auto_upload_folder(self) -> None:
         if not self.workspace:
@@ -2013,6 +2056,13 @@ class RestaurantCostControllerGUI:
                     self.backend_status_checking = False
                     self.costpilot_status_var.set(payload.message)
                     self.log(payload.message)
+                elif event == "workspace_maintenance_done":
+                    info = dict(payload or {})
+                    self.workspace_maintenance_busy = False
+                    if self.workspace and str(self.workspace.root) == str(info.get("workspace") or ""):
+                        for message in info.get("messages") or []:
+                            self.log(str(message))
+                        self.refresh_all()
                 elif event == "local_ai_install_done":
                     self.backend_busy = False
                     self.costpilot_status_var.set(payload.message)
@@ -2625,39 +2675,21 @@ class RestaurantCostControllerGUI:
         def worker() -> None:
             try:
                 current = local_ai_status()
-                if current.ready:
-                    self.worker_queue.put(("local_ai_status", current))
-                else:
-                    installed = ensure_local_ai(auto_install=True)
-                    self.worker_queue.put(("local_ai_install_done", installed))
+                self.worker_queue.put(("local_ai_status", current))
             except Exception as exc:
                 self.worker_queue.put(("local_ai_error", str(exc)))
 
         threading.Thread(target=worker, name="MarginMise-Local-CostPilot-Check", daemon=True).start()
 
     def _check_local_costpilot(self) -> None:
-        # Local CostPilot checks are lightweight and do not involve subprocesses
-        # access. Never run them on Tk's event thread or the application may
-        # appear not to start while Windows waits on an invisible backend call.
-        if not self.workspace:
-            return
-        if True:
-            self.root.after(2000, self._check_local_costpilot)
-            return
-        if self.backend_status_checking or self.backend_busy:
-            return
-        self.backend_status_checking = True
-        self.costpilot_status_var.set("Checking Local CostPilot in the background...")
-        profile_name = self._backend_profile_name()
+        """Keep legacy non-local routing disabled without background work.
 
-        def worker() -> None:
-            try:
-                status = {"provider": DEFAULT_FREE_PROVIDER, "model": DEFAULT_FREE_MODEL, "ready": True, "configured": True}
-                self.worker_queue.put(("backend_status", status))
-            except Exception as exc:
-                self.worker_queue.put(("backend_status_error", str(exc)))
-
-        threading.Thread(target=worker, daemon=True).start()
+        MarginMise uses the local CostPilot route. The old compatibility path
+        used to schedule an unconditional timer and then return, which added
+        needless Tk callbacks every two seconds on machines that were not using
+        that route.
+        """
+        return
 
     def install_repair_local_costpilot(self) -> None:
         if not self.require_permission("settings.manage"):

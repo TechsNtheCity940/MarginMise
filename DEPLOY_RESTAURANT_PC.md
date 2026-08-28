@@ -2,52 +2,43 @@
 
 ## Requirements
 - Windows 10/11
-- Python 3.11+ (installed automatically on first run)
 - 4GB RAM minimum, 8GB recommended
-- 2GB free disk space
+- 3GB free disk space for the application, model, and temporary files
 
 ## Quick Deployment (Recommended)
 
-1. Copy the entire `MarginMise` folder to the restaurant PC
-2. Double-click `run_marginmise.bat`
-3. Wait for setup to complete (5-10 minutes on first run)
-4. The app will launch automatically
+1. Install the released Windows package.
+2. Launch MarginMise from its desktop or Start Menu shortcut.
+3. The bundled GUI starts directly; it does not install Python or create a runtime venv.
+4. Install CostPilot from Settings only when needed. Its model is approximately 697 MiB.
 
 ## What Happens on First Run
 
-1. **Python Check**: If Python is not installed, it installs silently via winget
-2. **Virtual Environment**: Creates `.venv` folder (isolated Python environment)
-3. **Dependencies**: Installs all required packages from `requirements.txt`
-4. **Tesseract OCR**: Installs silently for document scanning
-5. **AI Model**: Downloads local AI model (~250MB)
-6. **Launch**: Opens the MarginMise GUI
+1. **Launch**: Opens the bundled MarginMise GUI.
+2. **On demand**: OCR and CostPilot helper processes start only when those features are used.
+3. **Optional model setup**: CostPilot downloads its verified runtime/model only after an authorized manager starts installation.
 
 ## Subsequent Runs
 
-After the first run, just double-click `run_marginmise.bat` again. The app launches in seconds.
+After installation, use the desktop or Start Menu shortcut. The app launches without a dependency-installation phase.
 
 ## File Structure on Restaurant PC
 
 ```
-MarginMise/
-├── run_marginmise.bat      ← Double-click this to launch
-├── requirements.txt        ← Python dependencies
-├── launch_gui.py          ← Main application
-├── local_ocr.py           ← OCR engine
-├── local_ai.py            ← AI assistant
-├── .venv/                 ← Python environment (created on first run)
-├── Logs/                  ← Application logs
-└── [all other Python files]
+%LOCALAPPDATA%\MarginMise\
+├── MarginMise.exe          ← Bundled GUI executable
+├── Logs\                   ← Startup/runtime logs
+└── AI\                     ← Optional verified CostPilot runtime/model
+
+Restaurant workspaces are selected by the user and contain their own
+`restaurant_costs.sqlite3` database and operational folders.
 ```
 
 ## Troubleshooting
 
 ### "Python not found" error
-The launcher will attempt to install Python automatically. If it fails:
-1. Go to https://python.org/downloads/
-2. Download Python 3.12
-3. Run installer, check "Add Python to PATH"
-4. Re-run `run_marginmise.bat`
+1. Re-run the released installer or use its repair option.
+2. Do not install Python manually for the packaged application.
 
 ### "Not enough memory" error
 - Close other applications
@@ -57,13 +48,13 @@ The launcher will attempt to install Python automatically. If it fails:
 ### Tesseract installation fails
 The app will still work with RapidOCR. To retry Tesseract:
 ```cmd
-.venv\Scripts\python.exe local_ocr.py ensure --install-tesseract
+OCR is provisioned by the packaged application when invoice processing requires it.
 ```
 
 ### AI model download fails
 The app will use deterministic SQL answers instead. To retry:
 ```cmd
-.venv\Scripts\python.exe local_ai.py ensure
+Use Settings → CostPilot → Install or repair local CostPilot.
 ```
 
 ## Network Requirements
@@ -74,20 +65,19 @@ The app will use deterministic SQL answers instead. To retry:
 ## Backup and Restore
 
 To backup a restaurant's data:
-1. Copy the entire `MarginMise` folder
-2. The database is in `.venv/Lib/site-packages/` or check `local_app_data/MarginMise/`
+1. Back up each selected restaurant workspace, including its `restaurant_costs.sqlite3` file.
+2. Optional CostPilot data is stored under `%LOCALAPPDATA%\MarginMise\AI\`.
 
 To restore:
-1. Copy the backup folder to the new PC
-2. Run `run_marginmise.bat`
-3. The app will detect existing setup and launch immediately
+1. Install the released Windows package on the new PC.
+2. Launch MarginMise and select the restored restaurant workspace.
 
 ## Updating
 
 To update to a new version:
-1. Replace all files in the `MarginMise` folder with the new version
-2. Keep the `.venv` folder (it contains your data and setup)
-3. Run `run_marginmise.bat`
+1. Close MarginMise.
+2. Run the new Windows installer.
+3. Keep the selected restaurant workspace and optional `%LOCALAPPDATA%\MarginMise\AI\` data.
 
 ## Performance Tips for Restaurant PCs
 

@@ -3,7 +3,7 @@ REM ============================================================
 REM MarginMise Windows .exe Build Script
 REM ============================================================
 REM Prerequisites: Python 3.12, pip
-REM This script builds a standalone .exe in dist/
+REM This script builds a low-memory folder-based .exe in dist/MarginMise/
 REM ============================================================
 
 cd /d "%~dp0"
@@ -26,19 +26,19 @@ pip install pyinstaller pillow
 
 REM Build with PyInstaller
 echo [3/5] Building executable with PyInstaller...
-pyinstaller marginmise.spec
+python -m PyInstaller marginmise_dir.spec --noconfirm --clean
 
 REM Test the executable
 echo [4/5] Build complete.
-if exist "dist\MarginMise.exe" (
+if exist "dist\MarginMise\MarginMise.exe" (
     echo.
     echo ========================================
     echo BUILD SUCCESSFUL!
     echo ========================================
-    echo Output: dist\MarginMise.exe
+    echo Output: dist\MarginMise\MarginMise.exe
     echo.
     echo To distribute:
-    echo   1. Copy dist\MarginMise.exe to any Windows PC
+    echo   1. Copy the entire dist\MarginMise folder to any Windows PC
     echo   2. The packaged GUI starts directly; it does not install Python or create a venv.
     echo   3. OCR and CostPilot runtimes start only when those features are used.
     echo.

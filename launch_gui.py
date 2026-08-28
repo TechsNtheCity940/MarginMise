@@ -89,6 +89,24 @@ def launch_gui() -> int:
     return 0
 
 
+def startup_check() -> int:
+    """Exercise frozen GUI imports without requiring an interactive session."""
+    try:
+        import tkinter as tk
+        from manager_first_gui import ManagerFirstRestaurantCostControllerGUI
+
+        root = tk.Tk()
+        app = ManagerFirstRestaurantCostControllerGUI(root)
+        root.update_idletasks()
+        app.auto_upload_coordinator.stop()
+        root.destroy()
+        log_startup("[MarginMise] Startup check passed")
+        return 0
+    except Exception as exc:
+        log_startup(f"[MarginMise] Startup check failed: {exc}")
+        return 1
+
+
 def parse_ocr_worker_args(argv: list[str]) -> tuple[Path, list[Path]]:
     """Parse the stable worker protocol used by source and frozen runs."""
     worker_args = list(argv)
@@ -136,6 +154,8 @@ def main() -> int:
     log_startup(f"[MarginMise] Starting... APP_DIR={APP_DIR} FROZEN={FROZEN}")
     if "--ocr-worker" in sys.argv[1:]:
         return handle_ocr_worker()
+    if "--startup-check" in sys.argv[1:]:
+        return startup_check()
     if FROZEN and not ensure_single_instance():
         log_startup("[MarginMise] Another GUI instance is already running")
         return 0

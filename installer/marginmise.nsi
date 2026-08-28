@@ -35,9 +35,9 @@ Section "Install"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   ; Registry entries for Add/Remove Programs
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MarginMise" "DisplayName" "MarginMise"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MarginMise" "UninstallString" "$INSTDIR\uninstall.exe"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MarginMise" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\MarginMise" "DisplayName" "MarginMise"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\MarginMise" "UninstallString" "$INSTDIR\uninstall.exe"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\MarginMise" "InstallLocation" "$INSTDIR"
 SectionEnd
 
 Section "Uninstall"
@@ -46,6 +46,6 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\MarginMise\Uninstall.lnk"
   RMDir "$SMPROGRAMS\MarginMise"
   Delete "$INSTDIR\uninstall.exe"
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MarginMise"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\MarginMise"
   RMDir /r "$INSTDIR"
 SectionEnd

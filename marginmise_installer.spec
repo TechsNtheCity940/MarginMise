@@ -12,11 +12,16 @@ hidden_imports = [
     'pathlib', 'datetime', 'subprocess', 'shutil', 'os', 'sys',
 ]
 
+datas = [
+    (str(Path('requirements.txt')), '.'),
+    *[(str(path), str(path.parent)) for path in Path('assets').rglob('*') if path.is_file()],
+]
+
 a = Analysis(
     ['installer/phased_installer.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},

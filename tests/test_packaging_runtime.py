@@ -40,6 +40,7 @@ def test_runtime_dispatches_worker_before_gui_import() -> None:
     source = read("launch_gui.py")
     assert source.index('if "--ocr-worker" in sys.argv[1:]:') < source.index("return launch_gui()")
     assert "ManagerFirstRestaurantCostControllerGUI" in source
+    assert "--startup-check" in source
 
 
 def test_worker_parser_accepts_source_and_frozen_forms() -> None:
@@ -76,6 +77,7 @@ def test_ci_smoke_test_checks_for_exactly_one_process() -> None:
     assert "Smoke test executable process behavior" in workflow
     assert "$copies.Count -ne 1" in workflow
     assert "Start-Process" in workflow
+    assert "path: dist/MarginMise" in workflow
 
 
 def test_launch_gui_source_protocol_is_parseable() -> None:
@@ -86,4 +88,51 @@ def test_launch_gui_source_protocol_is_parseable() -> None:
 def test_build_scripts_do_not_build_bootstrap() -> None:
     for name in ("build_exe_small.bat", "build_exe_fast.bat"):
         assert "bootstrap.py" not in read(name)
-        assert "marginmise.spec" in read(name)
+        assert "marginmise_dir.spec" in read(name)
+
+
+def test_low_end_safeguards_are_configured() -> None:
+    pipeline = read("invoice_pipeline.py")
+    assert '"max_source_file_mb": 50' in pipeline
+    assert "Source file is" in pipeline
+    assert 'context_size=2048' in read("manager_chat.py")
+    assert "max_files_per_cycle" in read("auto_upload.py")
+    assert '"auto_upload_max_files_per_cycle": 2' in pipeline
+
+
+def test_costpilot_does_not_install_model_during_startup_check() -> None:
+    source = read("restaurant_cost_gui.py")
+    startup = source[source.index("def _check_costpilot_first_run"):source.index("def _check_local_costpilot")]
+    assert "ensure_local_ai(auto_install=True)" not in startup
+    assert "local_ai_status()" in startup
+
+
+def test_low_end_build_is_onedir_and_installer_has_dependencies() -> None:
+    onedir = read("marginmise_dir.spec")
+    assert "exclude_binaries=True" in onedir
+    assert "COLLECT(" in onedir
+    installer = read("marginmise_installer.spec")
+    assert "requirements.txt" in installer
+    assert "assets" in installer
+
+
+def test_windows_ci_builds_and_uploads_onedir_output() -> None:
+    workflow = read(".github/workflows/build-windows-exe.yml")
+    assert "marginmise_dir.spec" in workflow
+    assert "dist\\MarginMise\\MarginMise.exe" in workflow
+    assert "path: dist/MarginMise" in workflow
+    assert "--startup-check" in workflow
+
+
+def test_installer_is_per_user_and_build_installs_runtime_dependencies() -> None:
+    assert "HKCU" in read("installer/marginmise.nsi")
+    build = read("build_installer.bat")
+    assert "-r requirements.txt" in build
+    assert "if exist \"%DIST_FOLDER%\" rmdir /s /q \"%DIST_FOLDER%\"" in build
+
+
+def test_legacy_costpilot_check_has_no_recurring_timer() -> None:
+    source = read("restaurant_cost_gui.py")
+    legacy = source[source.index("def _check_local_costpilot"):source.index("def install_repair_local_costpilot")]
+    assert "after(" not in legacy
+    assert "Thread(" not in legacy
