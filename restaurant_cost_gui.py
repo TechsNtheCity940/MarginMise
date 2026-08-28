@@ -165,10 +165,12 @@ class RestaurantCostControllerGUI:
         )
         self._build_style()
         self._build_shell()
-        self._load_initial_restaurant()
         self.root.after(1200, self._start_auto_upload)
         self.root.after(150, self._drain_worker_queue)
         self.root.after(800, self._check_costpilot_first_run)
+        # Load the initial restaurant only after the shell (including the log
+        # widget) is fully built, so early log() calls have a target.
+        self._load_initial_restaurant()
 
     def _start_auto_upload(self) -> None:
         """Start folder polling after the initial window has become responsive."""
@@ -4695,6 +4697,8 @@ class RestaurantCostControllerGUI:
             open_path(self.workspace.folders[key])
 
     def log(self, message: str) -> None:
+        if not hasattr(self, "log_text"):
+            return
         stamp = __import__("datetime").datetime.now().strftime("%H:%M:%S")
         self.log_text.configure(state="normal")
         self.log_text.insert("end", f"[{stamp}] {message}\n")
