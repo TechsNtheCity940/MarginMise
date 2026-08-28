@@ -1627,7 +1627,7 @@ class RestaurantCostControllerGUI:
             self.pipeline.phase3.set_location_provider(lambda: list(self.registry.restaurants))
             self.user_status_var.set(f"{user.display_name} | {user.role}" if user else "Local mode")
             self.chat_service = ManagerChatService(
-                self.workspace, self.pipeline, self.backend, self.current_gui_state
+                self.workspace, self.pipeline, self.current_gui_state
             )
             self.chat_session_id = None
             self.registry.data["selected"] = str(self.workspace.root)
