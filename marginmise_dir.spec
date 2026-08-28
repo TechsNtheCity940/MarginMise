@@ -4,13 +4,27 @@ import sys
 import os
 from pathlib import Path
 
+# Native-heavy packages (numpy/onnxruntime/opencv) must be collected with
+# collect_all() so their compiled binaries (.pyd/.dll) are bundled. A plain
+# hiddenimport leaves them out, which makes `onnxruntime` fail with
+# "import numpy failed" inside the frozen EXE and breaks RapidOCR.
+from PyInstaller.utils.hooks import collect_all
+
+extra_datas = []
+extra_binaries = []
+extra_hiddenimports = []
+for pkg in ("numpy", "onnx", "onnxruntime", "cv2", "rapidocr"):
+    try:
+        pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(pkg)
+        extra_datas += pkg_datas
+        extra_binaries += pkg_binaries
+        extra_hiddenimports += pkg_hiddenimports
+    except Exception:
+        # If a package is somehow unavailable at build time, keep going.
+        pass
+
 hidden_imports = [
-    'numpy',
-    'onnx',
-    'cv2',
     'PIL',
-    'rapidocr',
-    'onnxruntime',
     'matplotlib.backends.backend_tkagg',
     'matplotlib.figure',
     'invoice_pipeline',
@@ -36,14 +50,15 @@ hidden_imports = [
     'shift_reports',
     'weekly_invoice_log',
     'src.theme',
-]
+] + extra_hiddenimports
 
 datas = [(str(p), str(p.parent.relative_to(Path('.'))) if p.parent != Path('.') else '.') for p in Path("assets").rglob("*") if p.is_file()]
+datas += extra_datas
 
 a = Analysis(
     ['launch_gui.py'],
     pathex=['.'],
-    binaries=[],
+    binaries=extra_binaries,
     datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
