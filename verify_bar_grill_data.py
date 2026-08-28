@@ -33,13 +33,20 @@ def main() -> None:
     assert {row["Category"] for row in sales} == EXPECTED_CATEGORIES
 
     pdfs = sorted((ROOT / "invoices").glob("*.pdf"))
-    assert len(pdfs) == 4
+    assert len(pdfs) == 35
     for path in pdfs:
         reader = PdfReader(str(path))
         assert len(reader.pages) == 1
         assert not any((page.extract_text() or "").strip() for page in reader.pages)
         assert path.stat().st_size > 10000
 
+    daily_reports = sorted((ROOT / "daily_sales_reports").glob("*.csv"))
+    assert len(daily_reports) == 31
+    for path in daily_reports:
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert rows, f"{path.name} is empty"
+        assert {row["Business Date"] for row in rows} == {path.stem.replace("daily_sales_", "")}
     expected_csv_rows = {
         "daily_sales_july_2026.csv": 31,
         "sales_detail_july_2026.csv": 684,

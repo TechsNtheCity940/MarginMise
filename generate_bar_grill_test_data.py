@@ -33,7 +33,7 @@ def _scan_text(draw: ImageDraw.ImageDraw, text: str, x: int, y: int, font: Image
     return y + font.size + 8
 
 
-def write_pdf(path: Path, vendor: str, invoice_number: str, invoice_date: date, lines: list[tuple[str, str, int, float, float]]) -> None:
+def write_pdf(path: Path, vendor: str, invoice_number: str, invoice_date: date, lines: list[tuple[str, str, int, str, float, float]]) -> None:
     """Create an image-only, receipt-like PDF scan for OCR testing."""
     width, height = 1700, 2200
     image = Image.new("RGB", (width, height), (247, 246, 239))
@@ -215,7 +215,7 @@ def write_recipes() -> None:
     workbook.save(ROOT / "recipe_guide.xlsx")
 
 
-def write_sales() -> None:
+def write_sales() -> list[list[object]]:
     menu_prices = {
         "Flame Burger": 14.99, "Buffalo Wings": 16.99, "Fish Tacos": 15.99,
         "Loaded Fries": 10.99, "House Margarita": 11.99, "Draft Beer": 6.50,
@@ -239,7 +239,9 @@ def write_sales() -> None:
     rows: list[list[object]] = []
     day = START
     order_no = 1000
+    daily_rows: dict[str, list[list[object]]] = {}
     while day <= END:
+        day_rows: list[list[object]] = []
         for _ in range(18 + (day.weekday() in {4, 5}) * 14):
             menu = random.choice(list(menu_prices))
             qty = random.randint(1, 4)
@@ -247,8 +249,11 @@ def write_sales() -> None:
             gross = round(qty * price, 2)
             discount = round(gross * random.choice([0, 0, .05]), 2)
             tax = round((gross - discount) * .0825, 2)
-            rows.append([day.isoformat(), f"ORD-{order_no}", "Main Dining Room", "Dine In", menu, menu_categories[menu], qty, price, gross, discount, 0, round(gross - discount, 2), tax])
+            row = [day.isoformat(), f"ORD-{order_no}", "Main Dining Room", "Dine In", menu, menu_categories[menu], qty, price, gross, discount, 0, round(gross - discount, 2), tax]
+            rows.append(row)
+            day_rows.append(row)
             order_no += 1
+        daily_rows[day.isoformat()] = day_rows
         day += timedelta(days=1)
     write_csv(ROOT / "sales_detail_july_2026.csv", ["Business Date", "Order ID", "Location", "Channel", "Menu Item Name", "Category", "Quantity", "Unit Price", "Gross Sales", "Discounts", "Refunds", "Net Sales", "Sales Tax"], rows)
     daily: dict[str, float] = {}
@@ -258,22 +263,70 @@ def write_sales() -> None:
     write_csv(ROOT / "sales_summary_july_2026.csv", ["Period Start", "Period End", "Month", "Gross Sales", "Discounts", "Refunds", "Sales Tax Collected", "Net Sales", "Notes"], summary)
     write_csv(ROOT / "daily_sales_july_2026.csv", ["Business Date", "Net Sales"], [[day, round(total, 2)] for day, total in sorted(daily.items())])
 
+    # 31 daily sales report CSVs, one item-level file per business day.
+    daily_dir = ROOT / "daily_sales_reports"
+    daily_dir.mkdir(parents=True, exist_ok=True)
+    for path in daily_dir.glob("*.csv"):
+        path.unlink()
+    headers = ["Business Date", "Order ID", "Location", "Channel", "Menu Item Name", "Category", "Quantity", "Unit Price", "Gross Sales", "Discounts", "Refunds", "Net Sales", "Sales Tax"]
+    for day_str, day_rows in sorted(daily_rows.items()):
+        write_csv(daily_dir / f"daily_sales_{day_str}.csv", headers, day_rows)
+    return rows
+
 
 def main() -> None:
     for path in INVOICES.glob("*"):
         path.unlink()
     write_recipes()
     write_inventory()
-    write_sales()
+    rows = write_sales()
+    # Realistic receipt cadence: ~30 invoices spread across the month, with
+    # multiple deliveries per vendor and at least one invoice most weeks.
     invoice_lines: dict[str, list[tuple[str, str, int, str, float, float]]] = {}
     for item_id, category, name, unit, price in ITEMS:
         qty = random.randint(8, 24) if category not in {"Liquor", "Beverage"} else random.randint(2, 8)
         total = round(qty * price, 2)
         vendor = VENDORS[category][0]
         invoice_lines.setdefault(vendor, []).append((item_id, name, qty, unit, price, total))
-    for index, (vendor, lines) in enumerate(sorted(invoice_lines.items()), 1):
-        write_pdf(INVOICES / f"2026-07-{index:02d}_{vendor.replace(' ', '_')}_invoice.pdf", vendor, f"BF-0726-{index:03d}", START + timedelta(days=index - 1), lines)
-    (ROOT / "README.md").write_text("""# Barrel & Flame Bar + Grill — MarginMise Test Data\n\nFictional one-month test dataset for July 2026. All records are synthetic.\n\n## Files\n- `invoices/`: three image-only PDF invoice scans, covering all requested category groupings across vendors.\n- `recipe_guide.xlsx`: bar-and-grill recipes using the inventory item IDs.\n- `sales_detail_july_2026.csv`: daily item-level sales for July.\n- `daily_sales_july_2026.csv`: daily net-sales series for dashboard charts.\n- `sales_summary_july_2026.csv`: month summary.\n- `inventory_counts.xlsx`: Beginning Inventory on July 1 and Ending Inventory on July 31.\n\nCategories represented in inventory, invoices, recipes, and/or sales inputs: Dry Goods, Frozen Goods, Dairy, Produce, Beverage, Liquor, and Misc.\n""", encoding="utf-8")
+
+    # Per-vendor delivery calendar: (day_offset, vendor, invoice_number).
+    vendor_deliveries: list[tuple[int, str, str]] = []
+    seq = 1
+    for offset in (0, 4, 7, 11, 14, 18, 21, 25, 28):  # Heartland (Dry/Frozen/Misc): ~9 deliveries
+        vendor_deliveries.append((offset, "Heartland Restaurant Supply", f"BF-0726-{seq:03d}")); seq += 1
+    for offset in (0, 2, 3, 5, 7, 9, 10, 12, 14, 16, 17, 19, 21, 23, 24, 26, 28, 30):  # FreshRoute (Dairy/Produce): ~18 deliveries
+        vendor_deliveries.append((offset, "FreshRoute Foods", f"BF-0726-{seq:03d}")); seq += 1
+    for offset in (1, 11, 22):  # Gulf Coast (Beverage): ~3 deliveries
+        vendor_deliveries.append((offset, "Gulf Coast Beverage", f"BF-0726-{seq:03d}")); seq += 1
+    for offset in (2, 12, 23):  # Southern Spirits (Liquor): ~3 deliveries
+        vendor_deliveries.append((offset, "Southern Spirits Distributors", f"BF-0726-{seq:03d}")); seq += 1
+    for offset, vendor in ((5, "Green Acres Produce"), (9, "Coastal Spirits")):  # ad-hoc specialists
+        vendor_deliveries.append((offset, vendor, f"BF-0726-{seq:03d}")); seq += 1
+
+    vendor_deliveries.sort(key=lambda t: (t[0], t[1]))
+    extra_vendors = {
+        "Green Acres Produce": "Produce",
+        "Coastal Spirits": "Liquor",
+    }
+    seen: set[tuple[str, str]] = set()
+    for offset, vendor, invoice_number in vendor_deliveries:
+        invoice_date = START + timedelta(days=offset)
+        if vendor in extra_vendors:
+            category = extra_vendors[vendor]
+            lines = [
+                (item_id, name, random.randint(6, 20) if category != "Liquor" else random.randint(2, 8), unit, price, round((random.randint(6, 20) if category != "Liquor" else random.randint(2, 8)) * price, 2))
+                for item_id, cat, name, unit, price in ITEMS if cat == category
+            ]
+        else:
+            lines = list(invoice_lines.get(vendor, []))
+        if not lines:
+            continue
+        safe = vendor.replace(" ", "_")
+        key = (safe, invoice_number)
+        suffix = "" if key not in seen else f"_{seq:03d}"
+        seen.add(key)
+        write_pdf(INVOICES / f"{invoice_date.isoformat()}_{safe}{suffix}_invoice.pdf", vendor, invoice_number, invoice_date, lines)
+    (ROOT / "README.md").write_text("""# Barrel & Flame Bar + Grill — MarginMise Test Data\n\nFictional one-month test dataset for July 2026. All records are synthetic.\n\n## Files\n- `invoices/`: 35 image-only PDF invoice scans across five vendors, delivered on a realistic cadence throughout the month. Each scan is an image-only PDF (no text layer) for OCR testing.\n- `recipe_guide.xlsx`: bar-and-grill recipes using the inventory item IDs.\n- `sales_detail_july_2026.csv`: combined daily item-level sales for July (684 line items).\n- `daily_sales_reports/`: 31 individual daily sales report CSVs, one per business day (2026-07-01 through 2026-07-31), each item-level with the same columns as the combined file.\n- `daily_sales_july_2026.csv`: daily net-sales series for dashboard charts.\n- `sales_summary_july_2026.csv`: month summary.\n- `inventory_counts.xlsx`: Beginning Inventory on July 1 and Ending Inventory on July 31.\n\nCategories represented in inventory, invoices, recipes, and/or sales inputs: Dry Goods, Frozen Goods, Dairy, Produce, Beverage, Liquor, and Misc.\n""", encoding="utf-8")
 
 
 if __name__ == "__main__":
