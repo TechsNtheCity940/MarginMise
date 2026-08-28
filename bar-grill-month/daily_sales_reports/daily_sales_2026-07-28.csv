@@ -1,0 +1,19 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-28,ORD-1598,Main Dining Room,Dine In,Chips and Queso,Misc,2,9.99,19.98,1.0,0,18.98,1.57
+2026-07-28,ORD-1599,Main Dining Room,Dine In,House Rum Punch,Liquor,4,11.99,47.96,0.0,0,47.96,3.96
+2026-07-28,ORD-1600,Main Dining Room,Dine In,Tequila Sunrise,Liquor,2,10.99,21.98,1.1,0,20.88,1.72
+2026-07-28,ORD-1601,Main Dining Room,Dine In,House Margarita,Liquor,1,11.99,11.99,0.6,0,11.39,0.94
+2026-07-28,ORD-1602,Main Dining Room,Dine In,Shrimp Basket,Frozen Goods,1,17.99,17.99,0.0,0,17.99,1.48
+2026-07-28,ORD-1603,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,3,15.99,47.97,2.4,0,45.57,3.76
+2026-07-28,ORD-1604,Main Dining Room,Dine In,Garden Salad,Produce,2,10.99,21.98,1.1,0,20.88,1.72
+2026-07-28,ORD-1605,Main Dining Room,Dine In,House Margarita,Liquor,2,11.99,23.98,0.0,0,23.98,1.98
+2026-07-28,ORD-1606,Main Dining Room,Dine In,Buffalo Wings,Frozen Goods,1,16.99,16.99,0.0,0,16.99,1.4
+2026-07-28,ORD-1607,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,2,24.99,49.98,0.0,0,49.98,4.12
+2026-07-28,ORD-1608,Main Dining Room,Dine In,Steak Sandwich,Dry Goods,2,17.99,35.98,0.0,0,35.98,2.97
+2026-07-28,ORD-1609,Main Dining Room,Dine In,Tequila Sunrise,Liquor,3,10.99,32.97,1.65,0,31.32,2.58
+2026-07-28,ORD-1610,Main Dining Room,Dine In,Vodka Lime,Liquor,1,10.99,10.99,0.0,0,10.99,0.91
+2026-07-28,ORD-1611,Main Dining Room,Dine In,Garden Salad,Produce,2,10.99,21.98,0.0,0,21.98,1.81
+2026-07-28,ORD-1612,Main Dining Room,Dine In,Bottled Water,Beverage,3,2.5,7.5,0.0,0,7.5,0.62
+2026-07-28,ORD-1613,Main Dining Room,Dine In,Bottled Water,Beverage,4,2.5,10.0,0.0,0,10.0,0.83
+2026-07-28,ORD-1614,Main Dining Room,Dine In,Flame Burger,Dry Goods,4,14.99,59.96,0.0,0,59.96,4.95
+2026-07-28,ORD-1615,Main Dining Room,Dine In,Nacho Platter,Misc,3,13.99,41.97,2.1,0,39.87,3.29

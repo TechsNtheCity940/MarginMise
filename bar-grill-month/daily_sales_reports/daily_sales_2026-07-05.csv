@@ -1,0 +1,19 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-05,ORD-1100,Main Dining Room,Dine In,Side Salad,Produce,4,8.99,35.96,0.0,0,35.96,2.97
+2026-07-05,ORD-1101,Main Dining Room,Dine In,Burger Combo,Dry Goods,2,18.99,37.98,0.0,0,37.98,3.13
+2026-07-05,ORD-1102,Main Dining Room,Dine In,House Rum Punch,Liquor,2,11.99,23.98,0.0,0,23.98,1.98
+2026-07-05,ORD-1103,Main Dining Room,Dine In,Bottled Water,Beverage,4,2.5,10.0,0.5,0,9.5,0.78
+2026-07-05,ORD-1104,Main Dining Room,Dine In,Chips and Queso,Misc,1,9.99,9.99,0.0,0,9.99,0.82
+2026-07-05,ORD-1105,Main Dining Room,Dine In,Side Salad,Produce,3,8.99,26.97,1.35,0,25.62,2.11
+2026-07-05,ORD-1106,Main Dining Room,Dine In,Bottled Water,Beverage,1,2.5,2.5,0.0,0,2.5,0.21
+2026-07-05,ORD-1107,Main Dining Room,Dine In,Vodka Lime,Liquor,4,10.99,43.96,0.0,0,43.96,3.63
+2026-07-05,ORD-1108,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,1,15.99,15.99,0.8,0,15.19,1.25
+2026-07-05,ORD-1109,Main Dining Room,Dine In,Vodka Lime,Liquor,1,10.99,10.99,0.0,0,10.99,0.91
+2026-07-05,ORD-1110,Main Dining Room,Dine In,Bourbon Smash,Liquor,1,12.99,12.99,0.65,0,12.34,1.02
+2026-07-05,ORD-1111,Main Dining Room,Dine In,Bottled Water,Beverage,1,2.5,2.5,0.12,0,2.38,0.2
+2026-07-05,ORD-1112,Main Dining Room,Dine In,Loaded Fries,Dairy,4,10.99,43.96,0.0,0,43.96,3.63
+2026-07-05,ORD-1113,Main Dining Room,Dine In,Fish Tacos,Frozen Goods,1,15.99,15.99,0.0,0,15.99,1.32
+2026-07-05,ORD-1114,Main Dining Room,Dine In,Side Salad,Produce,1,8.99,8.99,0.45,0,8.54,0.7
+2026-07-05,ORD-1115,Main Dining Room,Dine In,House Rum Punch,Liquor,1,11.99,11.99,0.0,0,11.99,0.99
+2026-07-05,ORD-1116,Main Dining Room,Dine In,Lemonade,Produce,1,4.5,4.5,0.0,0,4.5,0.37
+2026-07-05,ORD-1117,Main Dining Room,Dine In,Side Salad,Produce,3,8.99,26.97,0.0,0,26.97,2.23

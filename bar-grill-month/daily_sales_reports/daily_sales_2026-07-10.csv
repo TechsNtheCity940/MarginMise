@@ -1,0 +1,33 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-10,ORD-1190,Main Dining Room,Dine In,Loaded Nachos,Misc,1,14.99,14.99,0.75,0,14.24,1.17
+2026-07-10,ORD-1191,Main Dining Room,Dine In,Tequila Sunrise,Liquor,4,10.99,43.96,0.0,0,43.96,3.63
+2026-07-10,ORD-1192,Main Dining Room,Dine In,Loaded Nachos,Misc,3,14.99,44.97,0.0,0,44.97,3.71
+2026-07-10,ORD-1193,Main Dining Room,Dine In,Side Salad,Produce,4,8.99,35.96,0.0,0,35.96,2.97
+2026-07-10,ORD-1194,Main Dining Room,Dine In,Draft Beer,Beverage,3,6.5,19.5,0.98,0,18.52,1.53
+2026-07-10,ORD-1195,Main Dining Room,Dine In,Buffalo Wings,Frozen Goods,3,16.99,50.97,2.55,0,48.42,3.99
+2026-07-10,ORD-1196,Main Dining Room,Dine In,Draft Beer,Beverage,4,6.5,26.0,1.3,0,24.7,2.04
+2026-07-10,ORD-1197,Main Dining Room,Dine In,Loaded Nachos,Misc,4,14.99,59.96,0.0,0,59.96,4.95
+2026-07-10,ORD-1198,Main Dining Room,Dine In,Nacho Platter,Misc,2,13.99,27.98,0.0,0,27.98,2.31
+2026-07-10,ORD-1199,Main Dining Room,Dine In,Fried Mozzarella,Dairy,3,10.99,32.97,1.65,0,31.32,2.58
+2026-07-10,ORD-1200,Main Dining Room,Dine In,House Margarita,Liquor,2,11.99,23.98,1.2,0,22.78,1.88
+2026-07-10,ORD-1201,Main Dining Room,Dine In,Flame Burger,Dry Goods,3,14.99,44.97,0.0,0,44.97,3.71
+2026-07-10,ORD-1202,Main Dining Room,Dine In,Bourbon Smash,Liquor,1,12.99,12.99,0.0,0,12.99,1.07
+2026-07-10,ORD-1203,Main Dining Room,Dine In,Bourbon Smash,Liquor,4,12.99,51.96,0.0,0,51.96,4.29
+2026-07-10,ORD-1204,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,2,15.99,31.98,0.0,0,31.98,2.64
+2026-07-10,ORD-1205,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,1,24.99,24.99,0.0,0,24.99,2.06
+2026-07-10,ORD-1206,Main Dining Room,Dine In,Bourbon Smash,Liquor,1,12.99,12.99,0.0,0,12.99,1.07
+2026-07-10,ORD-1207,Main Dining Room,Dine In,Nacho Platter,Misc,3,13.99,41.97,0.0,0,41.97,3.46
+2026-07-10,ORD-1208,Main Dining Room,Dine In,Fish and Chips,Frozen Goods,1,18.99,18.99,0.0,0,18.99,1.57
+2026-07-10,ORD-1209,Main Dining Room,Dine In,Buffalo Wings,Frozen Goods,2,16.99,33.98,0.0,0,33.98,2.8
+2026-07-10,ORD-1210,Main Dining Room,Dine In,Draft Beer,Beverage,4,6.5,26.0,0.0,0,26.0,2.15
+2026-07-10,ORD-1211,Main Dining Room,Dine In,Nacho Platter,Misc,3,13.99,41.97,2.1,0,39.87,3.29
+2026-07-10,ORD-1212,Main Dining Room,Dine In,Flame Burger,Dry Goods,3,14.99,44.97,0.0,0,44.97,3.71
+2026-07-10,ORD-1213,Main Dining Room,Dine In,Draft Beer,Beverage,3,6.5,19.5,0.0,0,19.5,1.61
+2026-07-10,ORD-1214,Main Dining Room,Dine In,Bourbon Smash,Liquor,1,12.99,12.99,0.0,0,12.99,1.07
+2026-07-10,ORD-1215,Main Dining Room,Dine In,Loaded Nachos,Misc,1,14.99,14.99,0.75,0,14.24,1.17
+2026-07-10,ORD-1216,Main Dining Room,Dine In,Steak Sandwich,Dry Goods,1,17.99,17.99,0.0,0,17.99,1.48
+2026-07-10,ORD-1217,Main Dining Room,Dine In,Bourbon Smash,Liquor,4,12.99,51.96,0.0,0,51.96,4.29
+2026-07-10,ORD-1218,Main Dining Room,Dine In,Fish Tacos,Frozen Goods,1,15.99,15.99,0.0,0,15.99,1.32
+2026-07-10,ORD-1219,Main Dining Room,Dine In,Flame Burger,Dry Goods,3,14.99,44.97,0.0,0,44.97,3.71
+2026-07-10,ORD-1220,Main Dining Room,Dine In,Flame Burger,Dry Goods,1,14.99,14.99,0.0,0,14.99,1.24
+2026-07-10,ORD-1221,Main Dining Room,Dine In,Garden Salad,Produce,2,10.99,21.98,0.0,0,21.98,1.81

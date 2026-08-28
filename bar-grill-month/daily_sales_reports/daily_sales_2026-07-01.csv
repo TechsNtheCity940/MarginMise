@@ -1,0 +1,19 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-01,ORD-1000,Main Dining Room,Dine In,Fried Mozzarella,Dairy,4,10.99,43.96,2.2,0,41.76,3.45
+2026-07-01,ORD-1001,Main Dining Room,Dine In,Loaded Fries,Dairy,1,10.99,10.99,0.0,0,10.99,0.91
+2026-07-01,ORD-1002,Main Dining Room,Dine In,Draft Beer,Beverage,1,6.5,6.5,0.0,0,6.5,0.54
+2026-07-01,ORD-1003,Main Dining Room,Dine In,Burger Combo,Dry Goods,2,18.99,37.98,0.0,0,37.98,3.13
+2026-07-01,ORD-1004,Main Dining Room,Dine In,Bottled Water,Beverage,2,2.5,5.0,0.25,0,4.75,0.39
+2026-07-01,ORD-1005,Main Dining Room,Dine In,Fried Mozzarella,Dairy,1,10.99,10.99,0.0,0,10.99,0.91
+2026-07-01,ORD-1006,Main Dining Room,Dine In,Nacho Platter,Misc,3,13.99,41.97,0.0,0,41.97,3.46
+2026-07-01,ORD-1007,Main Dining Room,Dine In,Burger Combo,Dry Goods,3,18.99,56.97,0.0,0,56.97,4.7
+2026-07-01,ORD-1008,Main Dining Room,Dine In,Lemonade,Produce,4,4.5,18.0,0.0,0,18.0,1.49
+2026-07-01,ORD-1009,Main Dining Room,Dine In,Garden Salad,Produce,3,10.99,32.97,0.0,0,32.97,2.72
+2026-07-01,ORD-1010,Main Dining Room,Dine In,Flame Burger,Dry Goods,4,14.99,59.96,0.0,0,59.96,4.95
+2026-07-01,ORD-1011,Main Dining Room,Dine In,Steak Sandwich,Dry Goods,1,17.99,17.99,0.0,0,17.99,1.48
+2026-07-01,ORD-1012,Main Dining Room,Dine In,Flame Burger,Dry Goods,3,14.99,44.97,0.0,0,44.97,3.71
+2026-07-01,ORD-1013,Main Dining Room,Dine In,Bottled Water,Beverage,3,2.5,7.5,0.0,0,7.5,0.62
+2026-07-01,ORD-1014,Main Dining Room,Dine In,Side Salad,Produce,4,8.99,35.96,0.0,0,35.96,2.97
+2026-07-01,ORD-1015,Main Dining Room,Dine In,Side Salad,Produce,2,8.99,17.98,0.9,0,17.08,1.41
+2026-07-01,ORD-1016,Main Dining Room,Dine In,Chips and Queso,Misc,1,9.99,9.99,0.0,0,9.99,0.82
+2026-07-01,ORD-1017,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,1,24.99,24.99,0.0,0,24.99,2.06

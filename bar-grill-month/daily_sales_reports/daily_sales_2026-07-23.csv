@@ -1,0 +1,19 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-23,ORD-1480,Main Dining Room,Dine In,Fish Tacos,Frozen Goods,3,15.99,47.97,0.0,0,47.97,3.96
+2026-07-23,ORD-1481,Main Dining Room,Dine In,Fried Mozzarella,Dairy,3,10.99,32.97,0.0,0,32.97,2.72
+2026-07-23,ORD-1482,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,3,24.99,74.97,0.0,0,74.97,6.19
+2026-07-23,ORD-1483,Main Dining Room,Dine In,Garden Salad,Produce,3,10.99,32.97,0.0,0,32.97,2.72
+2026-07-23,ORD-1484,Main Dining Room,Dine In,Fried Mozzarella,Dairy,1,10.99,10.99,0.0,0,10.99,0.91
+2026-07-23,ORD-1485,Main Dining Room,Dine In,Flame Burger,Dry Goods,2,14.99,29.98,1.5,0,28.48,2.35
+2026-07-23,ORD-1486,Main Dining Room,Dine In,Bottled Water,Beverage,2,2.5,5.0,0.0,0,5.0,0.41
+2026-07-23,ORD-1487,Main Dining Room,Dine In,Buffalo Wings,Frozen Goods,1,16.99,16.99,0.85,0,16.14,1.33
+2026-07-23,ORD-1488,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,1,24.99,24.99,0.0,0,24.99,2.06
+2026-07-23,ORD-1489,Main Dining Room,Dine In,Loaded Fries,Dairy,2,10.99,21.98,0.0,0,21.98,1.81
+2026-07-23,ORD-1490,Main Dining Room,Dine In,House Margarita,Liquor,1,11.99,11.99,0.6,0,11.39,0.94
+2026-07-23,ORD-1491,Main Dining Room,Dine In,Steak Sandwich,Dry Goods,3,17.99,53.97,2.7,0,51.27,4.23
+2026-07-23,ORD-1492,Main Dining Room,Dine In,Fish Tacos,Frozen Goods,4,15.99,63.96,0.0,0,63.96,5.28
+2026-07-23,ORD-1493,Main Dining Room,Dine In,Flame Burger,Dry Goods,4,14.99,59.96,0.0,0,59.96,4.95
+2026-07-23,ORD-1494,Main Dining Room,Dine In,Fish Tacos,Frozen Goods,1,15.99,15.99,0.0,0,15.99,1.32
+2026-07-23,ORD-1495,Main Dining Room,Dine In,Fried Mozzarella,Dairy,4,10.99,43.96,2.2,0,41.76,3.45
+2026-07-23,ORD-1496,Main Dining Room,Dine In,Steak Sandwich,Dry Goods,1,17.99,17.99,0.9,0,17.09,1.41
+2026-07-23,ORD-1497,Main Dining Room,Dine In,Bottled Water,Beverage,2,2.5,5.0,0.0,0,5.0,0.41

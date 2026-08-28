@@ -1,0 +1,19 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-20,ORD-1426,Main Dining Room,Dine In,Nacho Platter,Misc,1,13.99,13.99,0.0,0,13.99,1.15
+2026-07-20,ORD-1427,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,4,24.99,99.96,0.0,0,99.96,8.25
+2026-07-20,ORD-1428,Main Dining Room,Dine In,Loaded Nachos,Misc,1,14.99,14.99,0.0,0,14.99,1.24
+2026-07-20,ORD-1429,Main Dining Room,Dine In,Fish and Chips,Frozen Goods,4,18.99,75.96,3.8,0,72.16,5.95
+2026-07-20,ORD-1430,Main Dining Room,Dine In,Draft Beer,Beverage,1,6.5,6.5,0.33,0,6.17,0.51
+2026-07-20,ORD-1431,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,2,15.99,31.98,0.0,0,31.98,2.64
+2026-07-20,ORD-1432,Main Dining Room,Dine In,Side Salad,Produce,4,8.99,35.96,0.0,0,35.96,2.97
+2026-07-20,ORD-1433,Main Dining Room,Dine In,Tequila Sunrise,Liquor,1,10.99,10.99,0.55,0,10.44,0.86
+2026-07-20,ORD-1434,Main Dining Room,Dine In,Nacho Platter,Misc,3,13.99,41.97,2.1,0,39.87,3.29
+2026-07-20,ORD-1435,Main Dining Room,Dine In,Draft Beer,Beverage,2,6.5,13.0,0.65,0,12.35,1.02
+2026-07-20,ORD-1436,Main Dining Room,Dine In,Lemonade,Produce,2,4.5,9.0,0.45,0,8.55,0.71
+2026-07-20,ORD-1437,Main Dining Room,Dine In,Fish and Chips,Frozen Goods,1,18.99,18.99,0.0,0,18.99,1.57
+2026-07-20,ORD-1438,Main Dining Room,Dine In,Burger Combo,Dry Goods,3,18.99,56.97,0.0,0,56.97,4.7
+2026-07-20,ORD-1439,Main Dining Room,Dine In,Vodka Lime,Liquor,1,10.99,10.99,0.0,0,10.99,0.91
+2026-07-20,ORD-1440,Main Dining Room,Dine In,Lemonade,Produce,3,4.5,13.5,0.0,0,13.5,1.11
+2026-07-20,ORD-1441,Main Dining Room,Dine In,House Margarita,Liquor,1,11.99,11.99,0.0,0,11.99,0.99
+2026-07-20,ORD-1442,Main Dining Room,Dine In,Bottled Water,Beverage,2,2.5,5.0,0.0,0,5.0,0.41
+2026-07-20,ORD-1443,Main Dining Room,Dine In,Chips and Queso,Misc,1,9.99,9.99,0.5,0,9.49,0.78

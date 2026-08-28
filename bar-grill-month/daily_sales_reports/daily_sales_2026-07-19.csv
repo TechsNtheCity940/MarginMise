@@ -1,0 +1,19 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-19,ORD-1408,Main Dining Room,Dine In,Burger Combo,Dry Goods,3,18.99,56.97,0.0,0,56.97,4.7
+2026-07-19,ORD-1409,Main Dining Room,Dine In,Vodka Lime,Liquor,2,10.99,21.98,1.1,0,20.88,1.72
+2026-07-19,ORD-1410,Main Dining Room,Dine In,Flame Burger,Dry Goods,1,14.99,14.99,0.0,0,14.99,1.24
+2026-07-19,ORD-1411,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,4,24.99,99.96,5.0,0,94.96,7.83
+2026-07-19,ORD-1412,Main Dining Room,Dine In,Side Salad,Produce,1,8.99,8.99,0.45,0,8.54,0.7
+2026-07-19,ORD-1413,Main Dining Room,Dine In,Draft Beer,Beverage,1,6.5,6.5,0.0,0,6.5,0.54
+2026-07-19,ORD-1414,Main Dining Room,Dine In,Tequila Sunrise,Liquor,3,10.99,32.97,0.0,0,32.97,2.72
+2026-07-19,ORD-1415,Main Dining Room,Dine In,Loaded Nachos,Misc,3,14.99,44.97,0.0,0,44.97,3.71
+2026-07-19,ORD-1416,Main Dining Room,Dine In,Buffalo Wings,Frozen Goods,2,16.99,33.98,0.0,0,33.98,2.8
+2026-07-19,ORD-1417,Main Dining Room,Dine In,Fried Mozzarella,Dairy,1,10.99,10.99,0.55,0,10.44,0.86
+2026-07-19,ORD-1418,Main Dining Room,Dine In,Garden Salad,Produce,3,10.99,32.97,0.0,0,32.97,2.72
+2026-07-19,ORD-1419,Main Dining Room,Dine In,Tequila Sunrise,Liquor,2,10.99,21.98,1.1,0,20.88,1.72
+2026-07-19,ORD-1420,Main Dining Room,Dine In,Loaded Fries,Dairy,1,10.99,10.99,0.55,0,10.44,0.86
+2026-07-19,ORD-1421,Main Dining Room,Dine In,Garden Salad,Produce,1,10.99,10.99,0.55,0,10.44,0.86
+2026-07-19,ORD-1422,Main Dining Room,Dine In,Vodka Lime,Liquor,3,10.99,32.97,0.0,0,32.97,2.72
+2026-07-19,ORD-1423,Main Dining Room,Dine In,Burger Combo,Dry Goods,3,18.99,56.97,0.0,0,56.97,4.7
+2026-07-19,ORD-1424,Main Dining Room,Dine In,Vodka Lime,Liquor,3,10.99,32.97,0.0,0,32.97,2.72
+2026-07-19,ORD-1425,Main Dining Room,Dine In,Nacho Platter,Misc,3,13.99,41.97,0.0,0,41.97,3.46

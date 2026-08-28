@@ -1,0 +1,19 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-30,ORD-1634,Main Dining Room,Dine In,Burger Combo,Dry Goods,1,18.99,18.99,0.95,0,18.04,1.49
+2026-07-30,ORD-1635,Main Dining Room,Dine In,Garden Salad,Produce,2,10.99,21.98,0.0,0,21.98,1.81
+2026-07-30,ORD-1636,Main Dining Room,Dine In,Fish Tacos,Frozen Goods,2,15.99,31.98,0.0,0,31.98,2.64
+2026-07-30,ORD-1637,Main Dining Room,Dine In,Buffalo Wings,Frozen Goods,3,16.99,50.97,0.0,0,50.97,4.21
+2026-07-30,ORD-1638,Main Dining Room,Dine In,Chips and Queso,Misc,4,9.99,39.96,0.0,0,39.96,3.3
+2026-07-30,ORD-1639,Main Dining Room,Dine In,Chips and Queso,Misc,1,9.99,9.99,0.0,0,9.99,0.82
+2026-07-30,ORD-1640,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,4,24.99,99.96,0.0,0,99.96,8.25
+2026-07-30,ORD-1641,Main Dining Room,Dine In,Fish and Chips,Frozen Goods,1,18.99,18.99,0.0,0,18.99,1.57
+2026-07-30,ORD-1642,Main Dining Room,Dine In,Chips and Queso,Misc,4,9.99,39.96,0.0,0,39.96,3.3
+2026-07-30,ORD-1643,Main Dining Room,Dine In,Fish and Chips,Frozen Goods,2,18.99,37.98,0.0,0,37.98,3.13
+2026-07-30,ORD-1644,Main Dining Room,Dine In,House Rum Punch,Liquor,4,11.99,47.96,2.4,0,45.56,3.76
+2026-07-30,ORD-1645,Main Dining Room,Dine In,Vodka Lime,Liquor,3,10.99,32.97,0.0,0,32.97,2.72
+2026-07-30,ORD-1646,Main Dining Room,Dine In,Steak Sandwich,Dry Goods,1,17.99,17.99,0.0,0,17.99,1.48
+2026-07-30,ORD-1647,Main Dining Room,Dine In,Buffalo Wings,Frozen Goods,1,16.99,16.99,0.0,0,16.99,1.4
+2026-07-30,ORD-1648,Main Dining Room,Dine In,Burger Combo,Dry Goods,2,18.99,37.98,0.0,0,37.98,3.13
+2026-07-30,ORD-1649,Main Dining Room,Dine In,Flame Burger,Dry Goods,2,14.99,29.98,0.0,0,29.98,2.47
+2026-07-30,ORD-1650,Main Dining Room,Dine In,House Rum Punch,Liquor,3,11.99,35.97,0.0,0,35.97,2.97
+2026-07-30,ORD-1651,Main Dining Room,Dine In,Side Salad,Produce,1,8.99,8.99,0.45,0,8.54,0.7

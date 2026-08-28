@@ -1,0 +1,33 @@
+﻿Business Date,Order ID,Location,Channel,Menu Item Name,Category,Quantity,Unit Price,Gross Sales,Discounts,Refunds,Net Sales,Sales Tax
+2026-07-11,ORD-1222,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,3,15.99,47.97,0.0,0,47.97,3.96
+2026-07-11,ORD-1223,Main Dining Room,Dine In,Draft Beer,Beverage,1,6.5,6.5,0.0,0,6.5,0.54
+2026-07-11,ORD-1224,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,3,15.99,47.97,2.4,0,45.57,3.76
+2026-07-11,ORD-1225,Main Dining Room,Dine In,Lemonade,Produce,2,4.5,9.0,0.0,0,9.0,0.74
+2026-07-11,ORD-1226,Main Dining Room,Dine In,Loaded Fries,Dairy,1,10.99,10.99,0.0,0,10.99,0.91
+2026-07-11,ORD-1227,Main Dining Room,Dine In,Fish Tacos,Frozen Goods,3,15.99,47.97,0.0,0,47.97,3.96
+2026-07-11,ORD-1228,Main Dining Room,Dine In,Burger Combo,Dry Goods,4,18.99,75.96,0.0,0,75.96,6.27
+2026-07-11,ORD-1229,Main Dining Room,Dine In,Bottled Water,Beverage,2,2.5,5.0,0.0,0,5.0,0.41
+2026-07-11,ORD-1230,Main Dining Room,Dine In,Burger Combo,Dry Goods,3,18.99,56.97,2.85,0,54.12,4.46
+2026-07-11,ORD-1231,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,4,15.99,63.96,3.2,0,60.76,5.01
+2026-07-11,ORD-1232,Main Dining Room,Dine In,Burger Combo,Dry Goods,2,18.99,37.98,0.0,0,37.98,3.13
+2026-07-11,ORD-1233,Main Dining Room,Dine In,Chips and Queso,Misc,4,9.99,39.96,2.0,0,37.96,3.13
+2026-07-11,ORD-1234,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,3,15.99,47.97,0.0,0,47.97,3.96
+2026-07-11,ORD-1235,Main Dining Room,Dine In,House Rum Punch,Liquor,3,11.99,35.97,0.0,0,35.97,2.97
+2026-07-11,ORD-1236,Main Dining Room,Dine In,Garden Salad,Produce,2,10.99,21.98,1.1,0,20.88,1.72
+2026-07-11,ORD-1237,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,4,24.99,99.96,5.0,0,94.96,7.83
+2026-07-11,ORD-1238,Main Dining Room,Dine In,Buffalo Wings,Frozen Goods,2,16.99,33.98,0.0,0,33.98,2.8
+2026-07-11,ORD-1239,Main Dining Room,Dine In,Side Salad,Produce,2,8.99,17.98,0.0,0,17.98,1.48
+2026-07-11,ORD-1240,Main Dining Room,Dine In,Burger Combo,Dry Goods,3,18.99,56.97,2.85,0,54.12,4.46
+2026-07-11,ORD-1241,Main Dining Room,Dine In,House Rum Punch,Liquor,1,11.99,11.99,0.6,0,11.39,0.94
+2026-07-11,ORD-1242,Main Dining Room,Dine In,Vodka Lime,Liquor,3,10.99,32.97,1.65,0,31.32,2.58
+2026-07-11,ORD-1243,Main Dining Room,Dine In,Shrimp Basket,Frozen Goods,4,17.99,71.96,3.6,0,68.36,5.64
+2026-07-11,ORD-1244,Main Dining Room,Dine In,Draft Beer,Beverage,4,6.5,26.0,0.0,0,26.0,2.15
+2026-07-11,ORD-1245,Main Dining Room,Dine In,Fish Tacos,Frozen Goods,4,15.99,63.96,0.0,0,63.96,5.28
+2026-07-11,ORD-1246,Main Dining Room,Dine In,Flame Burger,Dry Goods,4,14.99,59.96,0.0,0,59.96,4.95
+2026-07-11,ORD-1247,Main Dining Room,Dine In,Chicken Basket,Frozen Goods,1,15.99,15.99,0.0,0,15.99,1.32
+2026-07-11,ORD-1248,Main Dining Room,Dine In,Tequila Sunrise,Liquor,4,10.99,43.96,2.2,0,41.76,3.45
+2026-07-11,ORD-1249,Main Dining Room,Dine In,Lemonade,Produce,4,4.5,18.0,0.0,0,18.0,1.49
+2026-07-11,ORD-1250,Main Dining Room,Dine In,Side Salad,Produce,1,8.99,8.99,0.0,0,8.99,0.74
+2026-07-11,ORD-1251,Main Dining Room,Dine In,Wing Sampler,Frozen Goods,1,24.99,24.99,1.25,0,23.74,1.96
+2026-07-11,ORD-1252,Main Dining Room,Dine In,Fish and Chips,Frozen Goods,4,18.99,75.96,0.0,0,75.96,6.27
+2026-07-11,ORD-1253,Main Dining Room,Dine In,House Rum Punch,Liquor,3,11.99,35.97,1.8,0,34.17,2.82
