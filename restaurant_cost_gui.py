@@ -1638,7 +1638,7 @@ class RestaurantCostControllerGUI:
             self.auto_upload_coordinator.scan_now()
             self.pipeline.controls.audit("workspace.open", "workspace", str(self.workspace.root), "Opened restaurant workspace")
             self._start_workspace_maintenance(workspace, self.pipeline, settings, user)
-            self.refresh_all()
+            self.root.after(100, self.refresh_all)
             if bool(settings.get("initial_document_discovery_pending")):
                 discovery_source = Path(
                     str(settings.get("initial_document_discovery_source") or workspace.root)

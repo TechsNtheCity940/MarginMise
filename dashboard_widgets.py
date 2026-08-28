@@ -571,19 +571,35 @@ class DashboardView:
             items = data.get("items", [])
             values = [float(item.get("amount") or 0) for item in items]
             labels = [str(item.get("category") or "Other") for item in items]
-        if not values or max(values) <= 0:
+        if not values:
             self._empty_state(host, data.get("empty_message", "No data available."))
             return
-        maximum = max(values)
-        for index, value in enumerate(values[-12:]):
-            label_values = labels[-12:]
+        visible_values = values[:12] if title == "Cost Breakdown" else values[-12:]
+        visible_labels = labels[:12] if title == "Cost Breakdown" else labels[-12:]
+        minimum = min(0.0, min(visible_values))
+        maximum = max(0.0, max(visible_values))
+        span = maximum - minimum or 1.0
+        for index, value in enumerate(visible_values):
+            label_values = visible_labels
             label = label_values[index] if index < len(label_values) else str(index + 1)
             row = tk.Frame(host, bg=WHITE)
             row.pack(fill="x", pady=2)
             tk.Label(row, text=label[:18], width=18, anchor="w", bg=WHITE, fg=CHARCOAL).pack(side="left")
-            bar = tk.Frame(row, bg=OCEAN_TEAL, height=14, width=max(4, int(250 * value / maximum)))
-            bar.pack(side="left", padx=4)
-            tk.Label(row, text=f"{value:,.0f}", bg=WHITE, fg=SLATE).pack(side="left")
+            track = tk.Frame(row, bg="#E2E8F0", height=14, width=250)
+            track.pack(side="left", padx=4)
+            track.pack_propagate(False)
+            zero_offset = int(250 * (0 - minimum) / span)
+            if value >= 0:
+                bar_x = zero_offset
+                bar_width = max(2, int(250 * value / span))
+            else:
+                bar_x = int(250 * (value - minimum) / span)
+                bar_width = max(2, zero_offset - bar_x)
+            bar = tk.Frame(track, bg=SUCCESS if value >= 0 else ERROR, height=14, width=bar_width)
+            bar.place(x=bar_x, y=0)
+            suffix = "%" if title == "Margin Trend" else ""
+            prefix = "$" if title in {"Sales Trend", "Cost Breakdown"} else ""
+            tk.Label(row, text=f"{prefix}{value:,.1f}{suffix}", bg=WHITE, fg=SLATE).pack(side="left")
 
     def _render_priorities(self, priorities: dict[str, list[dict[str, Any]]]) -> None:
         self.priority_header = tk.Frame(self.priority_section, bg=FROST_WHITE)

@@ -1619,7 +1619,6 @@ class InvoicePipeline:
             bool(self.settings.get("require_review_for_unrecognized_vendors", False))
             and not extraction.vendor_recognized
         )
-        auto_threshold = float(self.settings.get("auto_approve_confidence", 0.92))
         recovered_requires_review = bool(recovery.get("recovered_fields")) and not bool(
             self.settings.get("auto_approve_recovered_invoice_headers", True)
         )

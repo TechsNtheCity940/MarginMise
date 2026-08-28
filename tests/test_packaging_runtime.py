@@ -143,3 +143,10 @@ def test_automation_defaults_to_posting_clean_records() -> None:
     assert "needs_review = bool(errors) or unrecognized_requires_review or recovered_requires_review" in source
     assert '"require_review_for_unrecognized_vendors": False' in source
     assert '"auto_learn_validated_vendors": True' in source
+
+
+def test_fallback_chart_preserves_negative_margin_and_top_costs() -> None:
+    source = read("dashboard_widgets.py")
+    assert "if not values:" in source
+    assert "minimum = min(0.0, min(visible_values))" in source
+    assert "values[:12] if title == \"Cost Breakdown\"" in source
