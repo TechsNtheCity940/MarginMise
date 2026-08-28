@@ -136,3 +136,10 @@ def test_legacy_costpilot_check_has_no_recurring_timer() -> None:
     legacy = source[source.index("def _check_local_costpilot"):source.index("def install_repair_local_costpilot")]
     assert "after(" not in legacy
     assert "Thread(" not in legacy
+
+
+def test_automation_defaults_to_posting_clean_records() -> None:
+    source = read("invoice_pipeline.py")
+    assert "needs_review = bool(errors) or unrecognized_requires_review or recovered_requires_review" in source
+    assert '"require_review_for_unrecognized_vendors": False' in source
+    assert '"auto_learn_validated_vendors": True' in source

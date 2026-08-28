@@ -1623,7 +1623,7 @@ class InvoicePipeline:
         recovered_requires_review = bool(recovery.get("recovered_fields")) and not bool(
             self.settings.get("auto_approve_recovered_invoice_headers", True)
         )
-        needs_review = bool(errors) or unrecognized_requires_review or extraction.confidence < auto_threshold or recovered_requires_review
+        needs_review = bool(errors) or unrecognized_requires_review or recovered_requires_review
         if recovered_requires_review:
             finding = Finding(
                 "WARNING", "Header Recovery",

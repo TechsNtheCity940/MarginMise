@@ -1499,7 +1499,7 @@ class AutoUploadRouter:
 
     def _route_claimed(self, claimed: Path, classification: Classification, digest: str) -> RoutingOutcome:
         detected = classification.detected_type
-        if classification.confidence < 0.75 or detected in {"Unclassified", "Unsupported"}:
+        if classification.confidence < 0.50 or detected in {"Unclassified", "Unsupported"}:
             return RoutingOutcome(
                 "Needs Review",
                 detected,

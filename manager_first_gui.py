@@ -1259,7 +1259,7 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
             self.dashboard_custom_end = ""
             self._update_role_navigation()
             self.refresh_simple_settings()
-            self.refresh_dashboard()
+            self.root.after(250, self.refresh_dashboard)
             self.show_page(self.dashboard_tab, "home")
 
     def refresh_all(self) -> None:

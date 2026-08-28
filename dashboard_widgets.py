@@ -536,7 +536,7 @@ class DashboardView:
             if data.get("available") and _load_matplotlib():
                 renderer(chart_host, data)
             else:
-                self._empty_state(chart_host, data.get("empty_message", "No data available."))
+                self._render_fallback_chart(chart_host, data, title)
             if title == "Cost Breakdown":
                 tk.Button(
                     card.body,
@@ -556,6 +556,34 @@ class DashboardView:
                 card.body,
                 lambda _event, row=data: self.navigate(row.get("action", "reports"), row),
             )
+
+    def _render_fallback_chart(
+        self, host: tk.Misc, data: dict[str, Any], title: str
+    ) -> None:
+        """Render lightweight bars when Matplotlib is unavailable."""
+        if title == "Sales Trend":
+            values = [float(value or 0) for value in data.get("values", [])]
+            labels = [str(value) for value in data.get("labels", [])]
+        elif title == "Margin Trend":
+            values = [float(value or 0) for value in data.get("actual", [])]
+            labels = [str(value) for value in data.get("labels", [])]
+        else:
+            items = data.get("items", [])
+            values = [float(item.get("amount") or 0) for item in items]
+            labels = [str(item.get("category") or "Other") for item in items]
+        if not values or max(values) <= 0:
+            self._empty_state(host, data.get("empty_message", "No data available."))
+            return
+        maximum = max(values)
+        for index, value in enumerate(values[-12:]):
+            label_values = labels[-12:]
+            label = label_values[index] if index < len(label_values) else str(index + 1)
+            row = tk.Frame(host, bg=WHITE)
+            row.pack(fill="x", pady=2)
+            tk.Label(row, text=label[:18], width=18, anchor="w", bg=WHITE, fg=CHARCOAL).pack(side="left")
+            bar = tk.Frame(row, bg=OCEAN_TEAL, height=14, width=max(4, int(250 * value / maximum)))
+            bar.pack(side="left", padx=4)
+            tk.Label(row, text=f"{value:,.0f}", bg=WHITE, fg=SLATE).pack(side="left")
 
     def _render_priorities(self, priorities: dict[str, list[dict[str, Any]]]) -> None:
         self.priority_header = tk.Frame(self.priority_section, bg=FROST_WHITE)
