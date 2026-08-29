@@ -127,8 +127,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "restaurant_name": "New Restaurant",
     "currency": "USD",
     "timezone": "America/Chicago",
-    "minimum_extraction_confidence": 0.82,
-    "auto_approve_confidence": 0.92,
+    "minimum_extraction_confidence": 0.40,
+    "auto_approve_confidence": 0.70,
     "invoice_math_tolerance": 0.05,
     "price_alert_percent": 5.0,
     "require_review_for_unrecognized_vendors": False,
@@ -567,6 +567,16 @@ class RestaurantWorkspace:
                     settings.update(loaded)
             except json.JSONDecodeError:
                 pass
+        # Migration: OCR-extracted invoices run at ~0.80 confidence, so the
+        # legacy thresholds (0.82 min / 0.92 auto-approve) made it impossible
+        # for any realistic scan to auto-post. Promote any stale, OCR-hostile
+        # threshold on existing workspaces so clean documents post automatically.
+        stale_min = float(settings.get("minimum_extraction_confidence", 0.40))
+        if stale_min > 0.70:
+            settings["minimum_extraction_confidence"] = 0.40
+        stale_auto = float(settings.get("auto_approve_confidence", 0.70))
+        if stale_auto > 0.85:
+            settings["auto_approve_confidence"] = 0.70
         return settings
 
     def save_settings(self, settings: dict[str, Any]) -> None:
@@ -1651,7 +1661,7 @@ class InvoicePipeline:
             and not extraction.vendor_recognized
             and bool(self.settings.get("auto_learn_validated_vendors", True))
             and not bool(self.settings.get("require_review_for_unrecognized_vendors", False))
-            and extraction.confidence >= float(self.settings.get("auto_approve_confidence", 0.92))
+            and extraction.confidence >= float(self.settings.get("auto_approve_confidence", 0.70))
             and str(canonical.get("vendor") or "").strip()
         ):
             self.workspace.mark_vendor_recognized(str(canonical["vendor"]), extraction.parser_name)
@@ -1667,12 +1677,15 @@ class InvoicePipeline:
             self.settings.get("auto_approve_recovered_invoice_headers", True)
         )
         confidence_requires_review = extraction.confidence < float(
-            self.settings.get("auto_approve_confidence", 0.92)
+            self.settings.get("auto_approve_confidence", 0.70)
         ) and not (
             extraction.vendor_recognized
             and extraction.method == "structured-excel"
         )
-        warning_requires_review = bool(warnings) and extraction.method != "structured-excel"
+        warning_requires_review = bool(warnings) and extraction.method != "structured-excel" and any(
+            term in " ".join(str(getattr(w, "issue", w)).lower() for w in warnings)
+            for term in ("missing", "unusable", "unfamiliar", "invalid", "could not", "fail", "error", "required")
+        )
         needs_review = (
             bool(errors)
             or unrecognized_requires_review

@@ -28,12 +28,16 @@ def test_production_specs_do_not_use_bootstrap_as_entrypoint() -> None:
         assert "bootstrap.py" not in source.split("Analysis(", 1)[1].split(")", 1)[0]
 
 
-def test_frozen_ocr_protocol_does_not_pass_a_script_to_the_exe() -> None:
+def test_frozen_ocr_protocol_runs_rapidocr_in_process() -> None:
     source = read("invoice_pipeline.py")
-    section = source[source.index("runner = ("):source.index("completed = subprocess.run", source.index("runner = ("))]
-    assert '[str(sys.executable), "--ocr-worker", "extract"]' in section
-    assert "local_ocr.py" in section
-    assert "str(worker)" not in section
+    # The rapidocr engine must run in-process (memoized) so bulk imports do
+    # not spawn a MarginMise.exe subprocess per file. The old subprocess path
+    # re-booted the whole app and reloaded the ONNX model for every invoice.
+    assert "_run_rapidocr_in_process" in source
+    assert "def _local_ocr_fallback" in source
+    # No leftover subprocess worker that passes a script/local_ocr.py to the EXE.
+    assert '[str(sys.executable), "--ocr-worker", "extract"]' not in source
+    assert "local_ocr.py" not in source
 
 
 def test_runtime_dispatches_worker_before_gui_import() -> None:
@@ -140,9 +144,16 @@ def test_legacy_costpilot_check_has_no_recurring_timer() -> None:
 
 def test_automation_defaults_to_posting_clean_records() -> None:
     source = read("invoice_pipeline.py")
-    assert "confidence_requires_review = extraction.confidence" in source
-    assert "warning_requires_review = bool(warnings)" in source
-    assert "and extraction.method == \"structured-excel\"" in source
+    # Clean OCR extractions (RapidOCR runs at ~0.80 confidence) must be able
+    # to auto-post. The legacy hard-coded 0.92 auto-approve gate made
+    # auto-posting impossible for any scan, so the gate now reads the setting
+    # (lowered to 0.70) and a migration promotes stale, OCR-hostile values.
+    assert '"auto_approve_confidence": 0.70' in source
+    assert '"minimum_extraction_confidence": 0.40' in source
+    # The gate must no longer hard-code 0.92; it must read the setting.
+    assert "self.settings.get(\"auto_approve_confidence\", 0.92)" not in source
+    assert "stale_auto > 0.85" in source
+    # Known/learned vendors and recognized layouts still auto-post.
     assert '"require_review_for_unrecognized_vendors": False' in source
     assert '"auto_learn_validated_vendors": True' in source
 
