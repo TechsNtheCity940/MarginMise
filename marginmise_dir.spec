@@ -63,7 +63,7 @@ a = Analysis(
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['marginmise_runtime_hook.py'],
     excludes=['hermes_agent', 'hermes_backend', 'hermes'],
     noarchive=False,
 )
