@@ -1880,8 +1880,15 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
         """Fetch forecast data off the Tk thread when today's weather is absent/stale."""
         if not self.pipeline or not getattr(self.pipeline, "phase3", None):
             return
+        expected = self.pipeline
         weather = (model.get("operational_brief") or {}).get("weather") or []
-        if weather:
+        history_ready = False
+        try:
+            with expected.workspace.connect() as conn:
+                history_ready = bool(conn.execute("SELECT 1 FROM weather_daily WHERE source='Open-Meteo Archive' LIMIT 1").fetchone())
+        except Exception:
+            history_ready = False
+        if weather and history_ready:
             return
         if getattr(self, "_dashboard_weather_busy", False):
             return
@@ -1891,6 +1898,8 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
             error = ""
             try:
                 expected.phase3.refresh_weather(forecast_days=8)
+                expected.phase3.refresh_weather_history(days=180)
+                expected.phase3.learn_from_actuals()
             except Exception as exc:
                 error = str(exc)
             def done() -> None:

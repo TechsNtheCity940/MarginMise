@@ -480,6 +480,21 @@ class DashboardView:
             tk.Label(card.body, text=value, bg=WHITE, fg=PRIMARY_NAVY, font=(FONT_FAMILY, 15, "bold")).pack(anchor="w", pady=(1,0))
             tk.Label(card.body, text=sub, bg=WHITE, fg=SLATE, font=(FONT_FAMILY, 7), wraplength=205, justify="left").pack(anchor="w")
             grid.columnconfigure(index, weight=1)
+        predictive = brief.get("sales_forecast") or {}
+        predicted = predictive.get("predicted_sales")
+        forecast_frame = tk.Frame(self.brief_section, bg=FROST_WHITE)
+        forecast_frame.pack(fill="x", pady=(6, 0))
+        forecast_text = f"TODAY'S PLAN: Forecast sales ${predicted:,.0f}" if predicted is not None else "TODAY'S PLAN: Forecast not available yet"
+        orders = brief.get("recommended_orders") or []
+        if orders:
+            order_spend = sum(float(x.get("estimated_order_cost") or 0) for x in orders)
+            forecast_text += f" · {len(orders)} products recommended for ordering · ${order_spend:,.0f} estimated spend"
+        memory = brief.get("memory") or {}
+        par_recs = memory.get("par_recommendations") or []
+        if par_recs:
+            forecast_text += f" · MarginMemory recommends reviewing {len(par_recs)} par level{'s' if len(par_recs) != 1 else ''}"
+        tk.Label(forecast_frame, text=forecast_text, bg=WHITE, fg=PRIMARY_NAVY,
+                 font=(FONT_FAMILY, 8, "bold"), anchor="w", wraplength=1000, padx=8, pady=6).pack(fill="x")
         low_frame = tk.Frame(self.brief_section, bg=FROST_WHITE)
         low_frame.pack(fill="x", pady=(5,0))
         if low:

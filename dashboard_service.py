@@ -309,6 +309,20 @@ class DashboardService:
                 (target_day.isoformat(), (target_day + timedelta(days=7)).isoformat()),
             ).fetchall()
         events = [dict(row) for row in event_rows]
+        forecast = None
+        memory_learning: dict[str, Any] = {"factors_learned": 0, "par_recommendations": []}
+        try:
+            phase3 = getattr(self.pipeline, "phase3", None)
+            if phase3:
+                memory_learning = phase3.learn_from_actuals()
+                forecast = phase3.forecast_sales(target_day)
+        except Exception:
+            forecast = None
+        with self.workspace.connect() as conn:
+            order_rows = conn.execute("""SELECT item_name,suggested_order_quantity,manager_order_quantity,current_price,estimated_order_cost,status
+                FROM order_predictions WHERE prediction_id IN (SELECT MAX(prediction_id) FROM order_predictions GROUP BY item_id)
+                AND CAST(COALESCE(suggested_order_quantity,'0') AS REAL)>0 ORDER BY CAST(COALESCE(estimated_order_cost,'0') AS REAL) DESC LIMIT 8""").fetchall()
+        recommended_orders = [dict(row) for row in order_rows]
         holidays = self._us_holidays(target_day, target_day + timedelta(days=7))
         event_names = {str(row["event_name"]).casefold() for row in events}
         for holiday in holidays:
@@ -326,6 +340,16 @@ class DashboardService:
             "low_stock": low_stock,
             "events": events[:8],
             "weather": [dict(row) for row in weather_rows],
+            "sales_forecast": {
+                "predicted_sales": float(forecast.predicted_sales) if forecast else None,
+                "baseline_sales": float(forecast.baseline_sales) if forecast else None,
+                "explanation": forecast.explanation if forecast else {},
+            },
+            "recommended_orders": recommended_orders,
+            "memory": {
+                "factors_learned": int(memory_learning.get("factors_learned", 0)),
+                "par_recommendations": memory_learning.get("par_recommendations", []),
+            },
         }
 
     @staticmethod

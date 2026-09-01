@@ -640,6 +640,30 @@ class Phase3Service:
                 output.append(row)
         return output
 
+    def refresh_weather_history(self, days: int = 180, *, opener: Callable[..., Any] | None = None) -> int:
+        """Backfill observed weather so MarginMemory can measure weather effects on sales."""
+        lat, lon = self._coordinates()
+        end = date.today() - timedelta(days=1)
+        start = end - timedelta(days=max(30, min(730, int(days))) - 1)
+        params = {"latitude": lat, "longitude": lon, "start_date": start.isoformat(), "end_date": end.isoformat(),
+                  "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max",
+                  "temperature_unit": "fahrenheit", "wind_speed_unit": "mph", "precipitation_unit": "inch", "timezone": "auto"}
+        url = "https://archive-api.open-meteo.com/v1/archive?" + urlencode(params)
+        request = Request(url, headers={"User-Agent": "RestaurantCostController/3.0"})
+        opener = opener or urlopen
+        with opener(request, timeout=45) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        daily = payload.get("daily") or {}; dates = daily.get("time") or []
+        with self.workspace.connect() as conn:
+            for i, day in enumerate(dates):
+                values = [daily.get(key) or [None] * len(dates) for key in ("weather_code","temperature_2m_max","temperature_2m_min","precipitation_sum","precipitation_probability_max","wind_speed_10m_max")]
+                conn.execute("""INSERT INTO weather_daily(weather_date,fetched_at,latitude,longitude,weather_code,temperature_max_f,
+                    temperature_min_f,precipitation_inches,precipitation_probability,wind_mph,source,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(weather_date) DO UPDATE SET weather_code=excluded.weather_code,temperature_max_f=excluded.temperature_max_f,
+                    temperature_min_f=excluded.temperature_min_f,precipitation_inches=excluded.precipitation_inches,precipitation_probability=excluded.precipitation_probability,wind_mph=excluded.wind_mph,source=excluded.source,raw_json=excluded.raw_json""",
+                    (day, now_iso(), lat, lon, values[0][i], values[1][i], values[2][i], values[3][i], values[4][i], values[5][i], "Open-Meteo Archive", json.dumps({"date": day, "historical": True})))
+        return len(dates)
+
     def list_weather(self, start: str | None = None, end: str | None = None) -> list[sqlite3.Row]:
         start = start or date.today().isoformat(); end = end or (date.today() + timedelta(days=16)).isoformat()
         with self.workspace.connect() as conn:
@@ -702,14 +726,30 @@ class Phase3Service:
                 weather_mult *= Decimal("0.96"); weather_notes.append("extreme heat reduction")
             elif high <= Decimal("35"):
                 weather_mult *= Decimal("0.95"); weather_notes.append("cold-weather reduction")
-        event_mult = Decimal("1")
-        event_notes = []
-        for event in events:
-            event_mult *= Decimal("1") + dec(event["expected_sales_impact_percent"]) / Decimal("100")
-            event_notes.append(f"{event['event_name']} ({event['expected_sales_impact_percent']}%)")
         learned_key = f"weekday:{target.weekday()}"
         learned = self._learned_multiplier(learned_key)
-        predicted = money(baseline * trend * weekday_mult * weather_mult * event_mult * learned)
+        learned_weather = Decimal("1")
+        if weather:
+            high, rain, wind = dec(weather["temperature_max_f"]), dec(weather["precipitation_inches"]), dec(weather["wind_mph"])
+            if rain >= Decimal("0.50") or wind >= Decimal("35"):
+                learned_weather *= self._learned_multiplier("weather:severe")
+            elif rain >= Decimal("0.15"):
+                learned_weather *= self._learned_multiplier("weather:rain")
+            elif high >= Decimal("95"):
+                learned_weather *= self._learned_multiplier("weather:hot")
+            elif high <= Decimal("40"):
+                learned_weather *= self._learned_multiplier("weather:cold")
+        event_mult = Decimal("1")
+        event_notes = []
+        learned_event = Decimal("1")
+        for event in events:
+            event_mult *= Decimal("1") + dec(event["expected_sales_impact_percent"]) / Decimal("100")
+            category_key = "event:" + re.sub(r"[^a-z0-9]+", "_", str(event["category"] or "local").lower()).strip("_")
+            name = str(event["event_name"]).lower()
+            factor_key = "holiday" if any(x in name for x in ("holiday", "christmas", "thanksgiving", "new year", "independence", "memorial", "labor day", "easter", "valentine")) else category_key
+            learned_event *= self._learned_multiplier(factor_key)
+            event_notes.append(f"{event['event_name']} ({event['expected_sales_impact_percent']}%)")
+        predicted = money(baseline * trend * weekday_mult * weather_mult * learned_weather * event_mult * learned_event * learned)
         explanation = {"history_days": len(daily), "baseline": str(baseline), "trend_multiplier": str(trend),
                        "weekday_multiplier": str(weekday_mult), "weather_multiplier": str(weather_mult),
                        "event_multiplier": str(event_mult), "learned_multiplier": str(learned),
@@ -758,7 +798,82 @@ class Phase3Service:
                     VALUES(?,?,?,?,?) ON CONFLICT(factor_key) DO UPDATE SET sample_count=excluded.sample_count,
                     learned_multiplier=excluded.learned_multiplier,mean_absolute_percent_error=excluded.mean_absolute_percent_error,updated_at=excluded.updated_at""",
                     (key, len(ratios), f"{learned.quantize(Decimal('0.0001')):.4f}", f"{mape.quantize(Decimal('0.01')):.2f}", now_iso()))
-        return {"forecasts_scored": updated, "mean_absolute_percent_error": money(sum(errors, Decimal("0")) / Decimal(len(errors))) if errors else Decimal("0")}
+        operational = self.learn_operational_patterns(daily)
+        return {"forecasts_scored": updated, "mean_absolute_percent_error": money(sum(errors, Decimal("0")) / Decimal(len(errors))) if errors else Decimal("0"), **operational}
+
+    def learn_operational_patterns(self, daily_sales: dict[date, Decimal] | None = None) -> dict[str, Any]:
+        """Learn weather/event sales effects and inventory-par recommendations.
+
+        Effects are treated as correlations, not causal facts. A factor is only
+        learned when enough comparable observations exist, preventing one rainy
+        Tuesday from rewriting the restaurant's ordering model.
+        """
+        today = date.today()
+        daily = daily_sales or self._daily_sales(today - timedelta(days=180), today)
+        if not daily:
+            return {"factors_learned": 0, "par_recommendations": []}
+        with self.workspace.connect() as conn:
+            weather = {date.fromisoformat(r["weather_date"]): dict(r) for r in conn.execute(
+                "SELECT * FROM weather_daily WHERE weather_date BETWEEN ? AND ?", ((today-timedelta(days=180)).isoformat(), today.isoformat()))}
+            events = conn.execute("SELECT * FROM local_events WHERE end_date>=? AND event_date<=?", ((today-timedelta(days=180)).isoformat(), today.isoformat())).fetchall()
+            item_rows = conn.execute("SELECT item_id,item_name,current_price,estimated_on_hand,par_override_count_units,units_per_purchase_unit,lead_time_days,order_cycle_days,safety_stock_days FROM items WHERE active=1").fetchall()
+            usage_rows = conn.execute("SELECT item_id,AVG(CAST(average_daily_usage AS REAL)) avg_daily,COUNT(*) samples FROM monthly_item_usage WHERE month>=? GROUP BY item_id", ((today-timedelta(days=180)).strftime("%Y-%m"),)).fetchall()
+        factors: dict[str, list[Decimal]] = defaultdict(list)
+        weekdays: dict[int, list[Decimal]] = defaultdict(list)
+        for day, sales in daily.items():
+            if sales <= 0:
+                continue
+            weekdays[day.weekday()].append(sales)
+        for day, sales in daily.items():
+            baseline_values = [v for d, v in daily.items() if d.weekday() == day.weekday() and d != day]
+            if len(baseline_values) < 3 or sales <= 0:
+                continue
+            baseline = Decimal(str(statistics.median([float(v) for v in baseline_values])))
+            if baseline <= 0:
+                continue
+            ratio = max(Decimal("0.50"), min(Decimal("1.50"), sales / baseline))
+            w = weather.get(day)
+            if w:
+                rain = dec(w.get("precipitation_inches")); high = dec(w.get("temperature_max_f")); wind = dec(w.get("wind_mph"))
+                if rain >= Decimal("0.50") or wind >= Decimal("35"):
+                    factors["weather:severe"] .append(ratio)
+                elif rain >= Decimal("0.15"):
+                    factors["weather:rain"] .append(ratio)
+                elif high >= Decimal("95"):
+                    factors["weather:hot"] .append(ratio)
+                elif high <= Decimal("40"):
+                    factors["weather:cold"] .append(ratio)
+            for event in events:
+                try:
+                    start = date.fromisoformat(event["event_date"]); end = date.fromisoformat(event["end_date"])
+                except (TypeError, ValueError):
+                    continue
+                if start <= day <= end:
+                    name = str(event["event_name"]).lower()
+                    key = "holiday" if any(x in name for x in ("holiday", "christmas", "thanksgiving", "new year", "independence", "memorial", "labor day", "easter", "valentine")) else "event:" + re.sub(r"[^a-z0-9]+", "_", str(event["category"] or "local").lower()).strip("_")
+                    factors[key].append(ratio)
+        learned = 0
+        with self.workspace.connect() as conn:
+            for key, ratios in factors.items():
+                if len(ratios) < 3:
+                    continue
+                multiplier = Decimal(str(statistics.median([float(x) for x in ratios])))
+                multiplier = max(Decimal("0.70"), min(Decimal("1.30"), multiplier))
+                conn.execute("""INSERT INTO forecast_learning(factor_key,sample_count,learned_multiplier,mean_absolute_percent_error,updated_at)
+                    VALUES(?,?,?,?,?) ON CONFLICT(factor_key) DO UPDATE SET sample_count=excluded.sample_count,learned_multiplier=excluded.learned_multiplier,updated_at=excluded.updated_at""",
+                    (key, len(ratios), f"{multiplier:.4f}", "0.00", now_iso()))
+                learned += 1
+        par_recommendations: list[dict[str, Any]] = []
+        for row in item_rows:
+            usage = next((dec(r["avg_daily"]) for r in usage_rows if r["item_id"] == row["item_id"]), Decimal("0"))
+            current_par = dec(row["par_override_count_units"])
+            if usage <= 0 or current_par <= 0:
+                continue
+            target = (usage * (dec(row["lead_time_days"]) + dec(row["order_cycle_days"]) + dec(row["safety_stock_days"]))).quantize(Decimal("0.01"))
+            if target > current_par * Decimal("1.10"):
+                increase = ((target / current_par) - 1) * 100
+                par_recommendations.append({"item_id": row["item_id"], "item_name": row["item_name"], "current_par": float(current_par), "recommended_par": float(target), "increase_percent": float(increase), "sample_count": next((int(r["samples"]) for r in usage_rows if r["item_id"] == row["item_id"]), 0), "reason": "Observed average usage implies the current par does not cover lead time + order cycle + safety stock. Manager approval required."})
+        return {"factors_learned": learned, "par_recommendations": par_recommendations[:12]}
 
     def list_forecasts(self, limit: int = 200) -> list[sqlite3.Row]:
         with self.workspace.connect() as conn:
