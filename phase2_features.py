@@ -608,33 +608,81 @@ class Phase2Service:
         return destination
 
     def _match_inventory_item(self, conn: sqlite3.Connection, row: dict[str, Any]) -> str:
-        item_id = str(row.get("Inventory Item ID") or row.get("item_id") or "").strip()
+        """Resolve a recipe ingredient using ID, SKU, or normalized name.
+
+        Recipe workbooks commonly contain an Inventory Item ID. That identifier
+        is authoritative and must be preferred over fuzzy name matching.
+        """
+        def value(*names: str) -> str:
+            normalized = {normalize(k): v for k, v in row.items()}
+            for name in names:
+                raw = normalized.get(normalize(name))
+                if raw is not None and str(raw).strip():
+                    return str(raw).strip()
+            return ""
+
+        item_id = value("Inventory Item ID", "item_id", "Item ID")
         if item_id:
-            found = conn.execute("SELECT item_id FROM items WHERE item_id=?", (item_id,)).fetchone()
-            if found:
-                return item_id
-        sku = str(row.get("Vendor SKU") or row.get("vendor_sku") or "").strip()
-        if sku:
-            found = conn.execute("SELECT item_id FROM items WHERE vendor_sku=? ORDER BY last_purchase_date DESC LIMIT 1", (sku,)).fetchone()
+            found = conn.execute("SELECT item_id FROM items WHERE item_id=? COLLATE NOCASE", (item_id,)).fetchone()
             if found:
                 return found["item_id"]
-        name = normalize(row.get("Inventory Item Name") or row.get("ingredient") or "")
-        if name:
+            # Many recipe workbooks label the distributor SKU as
+            # "Inventory Item ID". Treat an ID-like value as a SKU fallback
+            # before attempting fuzzy name matching.
             found = conn.execute(
-                "SELECT item_id FROM items WHERE LOWER(item_name) LIKE ? ORDER BY last_purchase_date DESC LIMIT 1",
-                (f"%{name}%",),
+                "SELECT item_id FROM items WHERE vendor_sku=? COLLATE NOCASE ORDER BY last_purchase_date DESC LIMIT 1",
+                (item_id,),
             ).fetchone()
             if found:
                 return found["item_id"]
-        raise Phase2Error("Inventory ingredient could not be matched")
+
+        sku = value("Vendor SKU", "vendor_sku", "SKU")
+        if sku:
+            found = conn.execute(
+                "SELECT item_id FROM items WHERE vendor_sku=? COLLATE NOCASE ORDER BY last_purchase_date DESC LIMIT 1",
+                (sku,),
+            ).fetchone()
+            if found:
+                return found["item_id"]
+
+        name = normalize(value("Inventory Item Name", "ingredient", "Ingredient Name", "item name", "Item Name"))
+        if name:
+            found = conn.execute(
+                "SELECT item_id FROM items WHERE normalized_description=? ORDER BY last_purchase_date DESC LIMIT 1",
+                (name,),
+            ).fetchone()
+            if found:
+                return found["item_id"]
+            # Token-safe partial fallback for vendor descriptors such as
+            # 'Hamburger buns - 12 pack' versus 'Hamburger buns'.
+            found = conn.execute(
+                "SELECT item_id FROM items WHERE normalized_description LIKE ? OR LOWER(item_name) LIKE ? "
+                "ORDER BY last_purchase_date DESC LIMIT 1",
+                (f"%{name}%", f"%{name}%"),
+            ).fetchone()
+            if found:
+                return found["item_id"]
+
+        raise Phase2Error(
+            f"Inventory ingredient could not be matched: {item_id or sku or name or 'blank ingredient'}"
+        )
 
     def import_recipes_csv(self, path: Path) -> dict[str, Any]:
+        """Import CSV or Excel recipe workbooks using the same recipe schema."""
         imported = skipped = 0
         errors: list[str] = []
         stamp = now_iso()
-        with Path(path).open("r", encoding="utf-8-sig", newline="") as fh, self.workspace.connect() as conn:
-            reader = csv.DictReader(fh)
-            for index, row in enumerate(reader, 2):
+        from excel_io import is_excel_path, read_xlsx
+        source_path = Path(path)
+        if is_excel_path(source_path):
+            rows = read_xlsx(source_path)
+            row_iter = enumerate(rows, 2)
+        else:
+            with source_path.open("r", encoding="utf-8-sig", newline="") as fh:
+                rows = list(csv.DictReader(fh))
+            row_iter = enumerate(rows, 2)
+        with self.workspace.connect() as conn:
+            for index, row in row_iter:
                 try:
                     name = str(row.get("Menu Item Name") or row.get("menu_item_name") or "").strip()
                     if not name:

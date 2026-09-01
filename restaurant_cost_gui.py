@@ -791,7 +791,7 @@ class RestaurantCostControllerGUI:
         pos_buttons = ttk.Frame(pos_frame)
         pos_buttons.pack(fill="x", pady=(0, 6))
         ttk.Button(pos_buttons, text="Import POS CSV / Excel", command=self.import_pos_report).pack(side="left", padx=3)
-        ttk.Button(pos_buttons, text="Import Recipe CSV", command=self.import_recipe_file).pack(side="left", padx=3)
+        ttk.Button(pos_buttons, text="Import Recipe Workbook", command=self.import_recipe_file).pack(side="left", padx=3)
         ttk.Button(pos_buttons, text="Export Recipe Template", command=self.export_recipe_template).pack(side="left", padx=3)
         ttk.Button(pos_buttons, text="Open POS Folder", command=lambda: self.open_folder_key("pos")).pack(side="left", padx=3)
         ttk.Button(pos_buttons, text="Refresh", command=self.refresh_phase2).pack(side="right", padx=3)
@@ -3578,7 +3578,10 @@ class RestaurantCostControllerGUI:
         pipeline = self.require_pipeline()
         if not pipeline:
             return
-        path = filedialog.askopenfilename(title="Select recipe CSV", filetypes=[("CSV", "*.csv")])
+        path = filedialog.askopenfilename(
+            title="Select recipe workbook",
+            filetypes=[("Recipe files", "*.xlsx *.xlsm *.csv"), ("Excel", "*.xlsx *.xlsm"), ("CSV", "*.csv")],
+        )
         if not path:
             return
         try:

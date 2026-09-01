@@ -76,6 +76,7 @@ _VOLUME_FLOZ: dict[str, Decimal] = {
 
 _COUNT: dict[str, Decimal] = {
     "each": Decimal("1"), "ea": Decimal("1"), "ct": Decimal("1"), "count": Decimal("1"),
+    "head": Decimal("1"), "heads": Decimal("1"),
     "case": Decimal("1"), "bunch": Decimal("1"), "bottle": Decimal("1"),
 }
 
@@ -194,11 +195,46 @@ class RecipeCostingService:
     # Ingredient / item master lookup
     # ------------------------------------------------------------------
 
-    def _fetch_item(self, conn: sqlite3.Connection, ingredient_name: str) -> dict[str, Any] | None:
-        """Look up an inventory item by name (fuzzy, case-insensitive).
+    def _fetch_item(
+        self,
+        conn: sqlite3.Connection,
+        ingredient_name: str,
+        *,
+        item_id: str = "",
+        sku: str = "",
+    ) -> dict[str, Any] | None:
+        """Look up an inventory item by authoritative ID/SKU, then name.
 
-        Tries an exact normalized match first, then a LIKE on the raw name.
+        Recipe workbooks frequently carry an inventory identifier in a column
+        named ``Inventory Item ID`` even when that value is actually the
+        distributor SKU. Try both forms before falling back to normalized name
+        matching. This prevents harmless naming differences from breaking a
+        complete recipe import.
         """
+        if item_id:
+            row = conn.execute(
+                "SELECT item_id, item_name, current_price, units_per_purchase_unit, count_unit, unit, vendor_name, vendor_sku "
+                "FROM items WHERE item_id=? COLLATE NOCASE LIMIT 1",
+                (item_id,),
+            ).fetchone()
+            if row:
+                return dict(row)
+            row = conn.execute(
+                "SELECT item_id, item_name, current_price, units_per_purchase_unit, count_unit, unit, vendor_name, vendor_sku "
+                "FROM items WHERE vendor_sku=? COLLATE NOCASE ORDER BY last_purchase_date DESC LIMIT 1",
+                (item_id,),
+            ).fetchone()
+            if row:
+                return dict(row)
+        if sku:
+            row = conn.execute(
+                "SELECT item_id, item_name, current_price, units_per_purchase_unit, count_unit, unit, vendor_name, vendor_sku "
+                "FROM items WHERE vendor_sku=? COLLATE NOCASE ORDER BY last_purchase_date DESC LIMIT 1",
+                (sku,),
+            ).fetchone()
+            if row:
+                return dict(row)
+
         norm = normalize(ingredient_name)
         row = conn.execute(
             "SELECT item_id, item_name, current_price, units_per_purchase_unit, "
@@ -234,6 +270,30 @@ class RecipeCostingService:
 
         units_per_purchase = _qty(item.get("units_per_purchase_unit") or 1) or Decimal("1")
         item_count_unit = (item.get("count_unit") or item.get("unit") or "each").strip()
+
+        # Older inventory imports sometimes stored the package description in
+        # count_unit, e.g. "40 lb case", while units_per_purchase_unit was 1.
+        # Decode that package description so recipe quantities such as 0.08 lb
+        # are costed against the actual case contents instead of the whole case.
+        package_text = re.sub(r"\bib\b", "lb", item_count_unit.lower())
+        package_match = re.match(
+            r"^\s*(\d+(?:\.\d+)?)?\s*(oz|ounce|ounces|lb|lbs|pound|pounds|g|gram|grams|kg|kilogram|kilograms|"
+            r"ml|milliliter|milliliters|l|liter|liters|fl\s*oz|fluid\s+ounces?|cup|cups|pt|pint|pints|qt|quart|quarts|"
+            r"gal|gallon|gallons|head|heads|count|each|ea|bottle|bottles|case|cases|bunch|bunches|"
+            r"box|boxes|tub|tubs|bag|bags)\b",
+            package_text,
+        )
+        if package_match and units_per_purchase == Decimal("1"):
+            units_per_purchase = _qty(package_match.group(1) or "1") or Decimal("1")
+            item_count_unit = package_match.group(2).replace("  ", " ").strip()
+            if item_count_unit in {"heads", "head"}:
+                item_count_unit = "head"
+            elif item_count_unit in {"each", "ea", "count", "bottle", "bottles", "case", "cases", "bunch", "bunches"}:
+                item_count_unit = "each"
+            elif item_count_unit in {"lbs", "pound", "pounds"}:
+                item_count_unit = "lb"
+            elif item_count_unit in {"ounces", "ounce"}:
+                item_count_unit = "oz"
 
         cost_per_count_unit = (price / units_per_purchase).quantize(
             Decimal("0.00000001"), rounding=ROUND_HALF_UP
@@ -314,13 +374,13 @@ class RecipeCostingService:
                     continue
 
                 quantity_raw = self._get_row(
-                    row, "Quantity", "quantity", "qty", "amount"
+                    row, "Quantity", "quantity", "qty", "amount", "Quantity Count Units", "quantity_count_units", "Quantity Count Unit"
                 )
                 if not quantity_raw:
                     errors.append(f"Row {idx} ({menu_name} → {ingredient_name}): Quantity is required")
                     continue
 
-                unit = self._get_row(row, "Unit", "unit", "uom", "measurement")
+                unit = self._get_row(row, "Unit", "unit", "Count Unit", "count_unit", "uom", "measurement")
                 if not unit:
                     unit = "each"
 
@@ -370,7 +430,12 @@ class RecipeCostingService:
                     resolved_unit_cost = unit_cost_from_sheet
                     source = "spreadsheet"
                 else:
-                    item = self._fetch_item(conn, ingredient_name)
+                    item = self._fetch_item(
+                        conn,
+                        ingredient_name,
+                        item_id=self._get_row(row, "Inventory Item ID", "inventory_item_id", "item_id"),
+                        sku=self._get_row(row, "Vendor SKU", "vendor_sku", "SKU"),
+                    )
                     if item:
                         resolved_unit_cost, unit_err = self._per_unit_cost_from_inventory(
                             item, unit, ingredient_name=ingredient_name, row_num=idx
@@ -404,7 +469,15 @@ class RecipeCostingService:
                 ingredient_cost = _money(resolved_unit_cost * effective_qty)
 
                 # Store in recipe_ingredients table
-                item_row = self._fetch_item(conn, ingredient_name) if source.startswith("item_master") else None
+                item_row = (
+                    self._fetch_item(
+                        conn,
+                        ingredient_name,
+                        item_id=self._get_row(row, "Inventory Item ID", "inventory_item_id", "item_id"),
+                        sku=self._get_row(row, "Vendor SKU", "vendor_sku", "SKU"),
+                    )
+                    if source.startswith("item_master") else None
+                )
                 item_id = item_row["item_id"] if item_row else None
                 if item_id:
                     conn.execute(
