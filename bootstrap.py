@@ -165,8 +165,10 @@ def install_dependencies(venv_python: Path) -> None:
         # Install requirements
         req_file = INSTALL_DIR / REQUIREMENTS_FILE
         if not req_file.exists():
-            # Try app dir if not in install dir
-            req_file = Path(sys.executable).parent.parent / REQUIREMENTS_FILE
+            # Source installs keep requirements beside bootstrap.py. The old
+            # fallback pointed into the Python installation directory, which
+            # made a clean install silently skip every dependency.
+            req_file = APP_DIR / REQUIREMENTS_FILE
 
         if req_file.exists():
             result = subprocess.run(
@@ -176,13 +178,14 @@ def install_dependencies(venv_python: Path) -> None:
                 timeout=600,
             )
             if result.returncode != 0:
-                log_event(f"pip install stderr: {result.stderr[:500]}")
-            log_event(f"Dependencies installed (exit {result.returncode})")
+                log_event(f"pip install stderr: {result.stderr[:2000]}")
+                raise RuntimeError("Dependency installation failed. See bootstrap.log for the pip error.")
+            log_event("Dependencies installed successfully")
         else:
-            log_event(f"requirements.txt not found at {req_file}")
+            raise RuntimeError(f"requirements.txt not found at {req_file}")
     except Exception as e:
         log_event(f"Dependency installation failed: {e}")
-        # Non-fatal: continue with degraded functionality
+        raise
 
 
 # ========== TESSERACT OCR ==========
@@ -268,7 +271,7 @@ def run_bootstrap() -> None:
 
     except Exception as e:
         log_event(f"Bootstrap failed: {e}\n{traceback.format_exc()}")
-        # Non-fatal: continue to launch GUI anyway
+        raise
 
 
 def should_bootstrap() -> bool:

@@ -29,8 +29,17 @@ echo [3/5] Building executable with PyInstaller...
 python -m PyInstaller marginmise_dir.spec --noconfirm --clean
 
 REM Test the executable
-echo [4/5] Build complete.
+echo [4/5] Running packaged startup smoke test...
 if exist "dist\MarginMise\MarginMise.exe" (
+    "dist\MarginMise\MarginMise.exe" --startup-check
+    if errorlevel 1 (
+        echo.
+        echo ========================================
+        echo BUILD FAILED: STARTUP SMOKE TEST FAILED!
+        echo ========================================
+        echo The executable was created but could not initialize the GUI runtime.
+        exit /b 1
+    )
     echo.
     echo ========================================
     echo BUILD SUCCESSFUL!
@@ -48,6 +57,7 @@ if exist "dist\MarginMise\MarginMise.exe" (
     echo BUILD FAILED!
     echo ========================================
     echo Check the PyInstaller output above for errors.
+    exit /b 1
 )
 
 REM Cleanup

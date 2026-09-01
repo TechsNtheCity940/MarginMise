@@ -801,9 +801,12 @@ def _read_pdf_rows(path: Path) -> list[dict[str, Any]]:
     """Extract tabular data from a PDF using PyMuPDF."""
     rows: list[dict[str, Any]] = []
     try:
-        import fitz  # type: ignore
+        import pymupdf as fitz  # type: ignore
     except ImportError:
-        return rows
+        try:
+            import fitz  # type: ignore
+        except ImportError:
+            return rows
     doc = fitz.open(str(path))
     if doc.page_count == 0:
         return rows

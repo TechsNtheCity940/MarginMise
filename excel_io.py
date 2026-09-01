@@ -23,9 +23,12 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
 try:
-    import fitz  # PyMuPDF: text + basic table extraction.
+    import pymupdf as fitz  # PyMuPDF: text + basic table extraction.
 except ImportError:
-    fitz = None
+    try:
+        import fitz  # Backward-compatible fallback.
+    except ImportError:
+        fitz = None
 
 try:
     import docx  # python-docx.

@@ -24,7 +24,7 @@ python -m bootstrap
 if errorlevel 1 (
     echo.
     echo Installation encountered an error. Check Logs\bootstrap.log for details.
-    pause
+    if /I not "%~1"=="--silent" pause
     exit /b 1
 )
 
@@ -35,7 +35,9 @@ echo ========================================
 echo.
 echo MarginMise is ready to use.
 echo.
-echo Run MarginMise.exe to start the application.
+if /I "%~1"=="--silent" goto :silent_done
+echo Run MarginMise.exe or run_gui.bat to start the application.
 echo.
 pause
+:silent_done
 endlocal

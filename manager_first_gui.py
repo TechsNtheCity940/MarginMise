@@ -1356,11 +1356,37 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
             self.show_page(self.dashboard_tab, "home")
 
     def refresh_all(self) -> None:
+        """Refresh only widgets that have actually been built."""
         if self.dashboard_service:
             self.dashboard_service.invalidate()
-        super().refresh_all()
-        self.refresh_simple_settings()
-        self.refresh_margin_memory()
+        self.refresh_dashboard()
+        if hasattr(self, "simple_setting_vars"):
+            self.refresh_simple_settings()
+        if hasattr(self, "margin_memory_tree"):
+            self.refresh_margin_memory()
+        built = getattr(self, "_built_pages", set())
+        refreshers = (
+            (self.intake_tab, self.refresh_uploads),
+            (self.review_tab, self.refresh_review),
+            (self.auto_upload_tab, self.refresh_auto_upload_history),
+            (self.exceptions_tab, self.refresh_exceptions_health),
+            (self.receiving_tab, self.refresh_receiving),
+            (self.items_tab, self.refresh_items),
+            (self.inventory_tab, self.refresh_inventory),
+            (self.orders_tab, self.refresh_orders),
+            (self.data_tab, self.refresh_data_summary),
+            (self.phase2_tab, self.refresh_phase2),
+            (self.phase3_tab, self.refresh_phase3),
+            (self.chat_tab, self.refresh_chat_status),
+            (self.settings_tab, self.refresh_settings),
+            (self.security_tab, self.refresh_security),
+        )
+        for frame, refresher in refreshers:
+            if frame in built:
+                try:
+                    refresher()
+                except Exception as exc:
+                    self.log(f"Deferred page refresh warning: {exc}")
         self._update_role_navigation()
 
     def _refresh_dashboard_legacy(self) -> None:
@@ -1435,6 +1461,43 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
                 custom_start=self.dashboard_custom_start or None,
                 custom_end=self.dashboard_custom_end or None,
             )
+            # A newly imported restaurant often contains July data while the
+            # computer is already in August. Showing a blank "Last 7 Days" card
+            # on first launch is technically correct but operationally useless.
+            # If the selected range has no sales/cost history while the workspace
+            # does contain historical operating data, automatically center the
+            # Overview on the latest recorded business date.
+            if (
+                date_range == "Last 7 Days"
+                and not self.dashboard_model.get("sales_trend", {}).get("available")
+                and not self.dashboard_model.get("cost_breakdown", {}).get("available")
+            ):
+                with self.workspace.connect() as conn:
+                    latest_row = conn.execute(
+                        """SELECT MAX(d) AS latest_date FROM (
+                               SELECT MAX(period_end) AS d FROM sales
+                               UNION ALL SELECT MAX(business_date) AS d FROM pos_sales_lines
+                               UNION ALL SELECT MAX(invoice_date) AS d FROM invoices
+                           ) WHERE d IS NOT NULL AND TRIM(d)<>''"""
+                    ).fetchone()
+                latest_text = str(latest_row["latest_date"] or "") if latest_row else ""
+                try:
+                    latest_date = date.fromisoformat(latest_text)
+                except ValueError:
+                    latest_date = None
+                if latest_date:
+                    start_date = latest_date.replace(day=1)
+                    self.dashboard_custom_start = start_date.isoformat()
+                    self.dashboard_custom_end = latest_date.isoformat()
+                    self.dashboard_view.date_range_var.set("Custom Range")
+                    self.dashboard_model = self.dashboard_service.get_dashboard_summary(
+                        "Custom Range",
+                        vendor=self.dashboard_vendor_filter,
+                        category=self.dashboard_category_filter,
+                        custom_start=self.dashboard_custom_start,
+                        custom_end=self.dashboard_custom_end,
+                        force=True,
+                    )
             first_name = (
                 self.current_user.display_name.split()[0]
                 if self.current_user and self.current_user.display_name

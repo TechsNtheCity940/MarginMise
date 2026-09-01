@@ -477,7 +477,13 @@ def _initialize_inbox(folder: Path, workspace: RestaurantWorkspace, restaurant_n
         "workspace": str(workspace.root),
         "created_by": "MarginMise",
     }
-    (folder / ".restaurant_workspace.json").write_text(json.dumps(marker, indent=2), encoding="utf-8")
+    marker_path = folder / ".restaurant_workspace.json"
+    marker_text = json.dumps(marker, indent=2)
+    try:
+        if marker_path.read_text(encoding="utf-8") != marker_text:
+            marker_path.write_text(marker_text, encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        marker_path.write_text(marker_text, encoding="utf-8")
     readme = f"""{restaurant_name} AUTOMATIC UPLOAD FOLDER
 
 DROP FILES DIRECTLY INTO THIS FOLDER.
@@ -507,7 +513,16 @@ files are preserved with a result report.
 Workspace:
 {workspace.root}
 """
-    (folder / "README_DROP_FILES_HERE.txt").write_text(readme, encoding="utf-8")
+    # Do not rewrite a Desktop file on every application launch. Security tools
+    # commonly flag repeated writes/deletes in protected Desktop locations.
+    # The README is optional documentation and is created only when explicitly
+    # requested by the user/environment.
+    readme_path = folder / "README_DROP_FILES_HERE.txt"
+    if os.environ.get("MARGINMISE_CREATE_UPLOAD_README", "0") == "1" and not readme_path.exists():
+        try:
+            readme_path.write_text(readme, encoding="utf-8")
+        except OSError:
+            pass
 
 
 def auto_upload_status(workspace: RestaurantWorkspace) -> dict[str, Any]:
@@ -2029,7 +2044,7 @@ class InitialDocumentDiscovery:
 
     def _pdf_text_looks_like_invoice(self, path: Path) -> bool:
         try:
-            import fitz
+            import pymupdf as fitz
 
             with fitz.open(path) as document:
                 text = " ".join(page.get_text("text") for page in list(document)[:2])
@@ -2404,16 +2419,14 @@ class AutoUploadCoordinator:
             "Event Calendar": 70,
             "Receiving Log": 80,
         }
-        # Treat the current top-level drop as one batch. Waiting until every
-        # candidate is stable prevents a small recipe/count/waste workbook
-        # from outrunning a larger invoice workbook that is still copying.
-        if candidates:
-            readiness = [self._ready(path, stability) for path in candidates]
-            if not all(readiness):
-                return
+        # Do not wait for every file in the inbox to become stable. A single
+        # workbook that is still being copied, scanned by antivirus, or held
+        # open by Excel must never block unrelated invoices forever.
         for path in candidates:
             if self.stop_event.is_set():
                 return
+            if not self._ready(path, stability):
+                continue
             self._stable.pop(str(path), None)
             classification = router.classify(path)
             ready.append((
@@ -2422,6 +2435,8 @@ class AutoUploadCoordinator:
                 path,
                 classification,
             ))
+        if not ready:
+            return
         max_per_cycle = max(1, min(10, int(settings.get("auto_upload_max_files_per_cycle", self.max_files_per_cycle))))
         for _, _, path, classification in sorted(ready)[:max_per_cycle]:
             if self.stop_event.is_set():

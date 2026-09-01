@@ -38,9 +38,12 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 try:
-    import fitz  # PyMuPDF: text extraction and PDF page rendering only, never OCR.
+    import pymupdf as fitz  # PyMuPDF: text extraction and PDF rendering only, never OCR.
 except ImportError:  # pragma: no cover - installer supplies it.
-    fitz = None
+    try:
+        import fitz  # Backward-compatible fallback for older PyMuPDF builds.
+    except ImportError:
+        fitz = None
 
 from excel_io import write_table_as
 
@@ -804,7 +807,7 @@ class LocalExtractor:
             fees = delivery or fuel or "0.00"
         items: list[dict[str, Any]] = []
         row_re = re.compile(
-            r"^([A-Z0-9][A-Z0-9._/-]{1,30})\s+(.+)\s+(-?\d+(?:\.\d+)?)\s+([A-Za-z][A-Za-z0-9 /._-]{0,18})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})$",
+            r"^([A-Z0-9][A-Z0-9._/-]{1,30})\s+(.+?)\s+(-?\d+(?:\.\d+)?)\s+([A-Za-z][A-Za-z0-9 /._-]{0,18})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})$",
             re.I,
         )
         for line in lines:
@@ -820,7 +823,30 @@ class LocalExtractor:
             try:
                 expected = (Decimal(qty) * Decimal(unit_price_s)).quantize(MONEY)
                 if abs(expected - Decimal(line_total_s)) > Decimal("0.05"):
-                    confidence = 0.84
+                    # Some invoice OCR layouts place the quantity immediately
+                    # after the description while the package size begins the
+                    # UNIT column, e.g. "Cheddar cheese 12 40 lb case". The
+                    # greedy OCR row parser can otherwise read 40 as QTY and
+                    # leave 12 attached to DESCRIPTION. Recover that layout
+                    # only when the trailing description number makes the line
+                    # arithmetic exact. This prevents a valid invoice from
+                    # being dumped into manual review merely because OCR merged
+                    # two adjacent columns.
+                    tail = re.search(r"\s+(\d+(?:\.\d+)?)$", desc.strip())
+                    if tail and re.fullmatch(r"\d+(?:\.\d+)?", str(qty).strip()):
+                        recovered_qty = Decimal(tail.group(1))
+                        recovered_unit = f"{qty} {unit}".strip()
+                        recovered_expected = (recovered_qty * Decimal(unit_price_s)).quantize(MONEY)
+                        if abs(recovered_expected - Decimal(line_total_s)) <= Decimal("0.05"):
+                            desc = desc[:tail.start()].strip()
+                            qty = str(recovered_qty)
+                            unit = recovered_unit
+                            expected = recovered_expected
+                            confidence = 0.98
+                        else:
+                            confidence = 0.84
+                    else:
+                        confidence = 0.84
             except Exception:
                 confidence = 0.80
             items.append({
@@ -828,6 +854,32 @@ class LocalExtractor:
                 "quantity": qty, "unit": unit.strip(), "unit_price": unit_price_s,
                 "line_total": line_total_s, "confidence": confidence,
             })
+
+        # Second-pass quantity recovery for OCR tables where the quantity is
+        # visibly misread but the printed line total and unit price still give
+        # an exact quantity. Only apply this when every parsed line amount
+        # reconciles to the printed subtotal, which makes this a document-level
+        # consistency correction rather than a guess based on one field.
+        if items and subtotal:
+            try:
+                line_sum = sum((Decimal(i["line_total"]) for i in items), Decimal("0")).quantize(MONEY)
+                if line_sum == Decimal(subtotal) and all(
+                    abs((Decimal(i["line_total"]) / Decimal(i["unit_price"])) -
+                        (Decimal(i["line_total"]) / Decimal(i["unit_price"])).quantize(Decimal("0.01"))) <= Decimal("0.0001")
+                    for i in items
+                ):
+                    for item in items:
+                        implied_qty = (Decimal(item["line_total"]) / Decimal(item["unit_price"])).quantize(Decimal("0.01"))
+                        current_qty = Decimal(str(item["quantity"]))
+                        if abs(implied_qty - current_qty) > Decimal("0.0001"):
+                            description = str(item["description"]).strip()
+                            tail = re.search(r"\s+\d+(?:\.\d+)?$", description)
+                            if tail:
+                                item["description"] = description[:tail.start()].strip()
+                            item["quantity"] = str(implied_qty)
+                            item["confidence"] = max(float(item.get("confidence", 0.0)), 0.97)
+            except (ArithmeticError, InvalidOperation, ZeroDivisionError):
+                pass
         if not subtotal and items:
             subtotal = f"{sum((Decimal(i['line_total']) for i in items), Decimal('0')).quantize(MONEY):.2f}"
         if not total and subtotal:
@@ -1641,6 +1693,14 @@ class InvoicePipeline:
         if duplicate:
             result.status = "Duplicate"
             result.message = f"Duplicate of {duplicate}"
+            # A duplicate is a completed ingestion outcome, not a file that
+            # should remain in Upload Invoices. Leaving it there caused every
+            # scheduled/manual scan to pick the same file up again forever.
+            try:
+                if source.parent.resolve() == self.workspace.folders["upload"].resolve():
+                    source.unlink(missing_ok=True)
+            except OSError:
+                pass
             return result
 
         findings: list[Finding] = []
@@ -1722,6 +1782,18 @@ class InvoicePipeline:
             notes="; ".join(result.errors),
         )
         self._store_reviews(invoice_id, findings, canonical)
+        if status == "Approved":
+            # Findings can include informational/warning records even when the
+            # deterministic validation passed. They are historical evidence,
+            # not open manager tasks. Leaving them Open made Overview report
+            # exceptions against already-approved invoices.
+            with self.workspace.connect() as conn:
+                conn.execute(
+                    """UPDATE reviews
+                       SET status='Resolved', resolution='Automatically cleared during successful validation', resolved_at=?
+                       WHERE invoice_id=? AND status='Open'""",
+                    (now_iso(), invoice_id),
+                )
         if recovery.get("recovered_fields"):
             self.margin_memory.capture_invoice_correction(
                 invoice_id, extraction.data, canonical, correction_source="Automatic Header Recovery"

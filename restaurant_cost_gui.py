@@ -1909,8 +1909,10 @@ class RestaurantCostControllerGUI:
             messagebox.showinfo("No invoices", "There are no supported invoice files to process.")
             return
         self.processing = True
-        self.processing_progress.start(12)
-        self.status_var.set(f"Processing {len(sources)} invoice file(s)...")
+        self.processing_total = len(sources)
+        self.processing_completed = 0
+        self.processing_progress.configure(mode="determinate", maximum=max(1, len(sources)), value=0)
+        self.status_var.set(f"Processing 0 of {len(sources)} invoice file(s)...")
         for source in sources:
             if self.upload_tree.exists(source.name):
                 self.upload_tree.set(source.name, "status", "Processing")
@@ -1949,6 +1951,16 @@ class RestaurantCostControllerGUI:
                         self.log(f"  ERROR: {error}")
                     for warning in result.warnings:
                         self.log(f"  WARNING: {warning}")
+                    self.processing_completed = min(
+                        getattr(self, "processing_completed", 0) + 1,
+                        getattr(self, "processing_total", 1),
+                    )
+                    if self.processing:
+                        total = max(1, getattr(self, "processing_total", 1))
+                        self.processing_progress.configure(value=self.processing_completed)
+                        self.status_var.set(
+                            f"Processed {self.processing_completed} of {total} invoice file(s)..."
+                        )
                     if self.pipeline:
                         self.pipeline.controls.audit(
                             "invoice.process", "invoice", result.invoice_id,
@@ -2006,8 +2018,13 @@ class RestaurantCostControllerGUI:
                         messagebox.showerror("Find existing files", error)
                 elif event == "processing_done":
                     self.processing = False
+                    total = int(payload or getattr(self, "processing_total", 0) or 0)
+                    completed = int(getattr(self, "processing_completed", total) or 0)
                     self.processing_progress.stop()
-                    self.status_var.set(f"Finished processing {payload} invoice file(s).")
+                    self.processing_progress.configure(value=completed)
+                    self.status_var.set(
+                        f"Finished processing {completed} of {total} invoice file(s)."
+                    )
                     self.refresh_all()
                 elif event == "chat_answer":
                     self.chat_busy = False
