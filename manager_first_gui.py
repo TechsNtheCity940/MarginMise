@@ -1511,6 +1511,8 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
                 multi_location=len(self.registry.restaurants) > 1,
             )
             self._dashboard_retry_count = 0
+            self._refresh_dashboard_weather_if_needed(self.dashboard_model)
+            
             settings = self.workspace.load_settings()
             name = settings.get("restaurant_name") or self.workspace.root.name
             summary = self.pipeline.dashboard_summary()
@@ -1873,6 +1875,39 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
         if self.dashboard_model:
             state["overview"] = self.dashboard_model.get("costpilot_context", {})
         return state
+
+    def _refresh_dashboard_weather_if_needed(self, model: dict[str, Any]) -> None:
+        """Fetch forecast data off the Tk thread when today's weather is absent/stale."""
+        if not self.pipeline or not getattr(self.pipeline, "phase3", None):
+            return
+        weather = (model.get("operational_brief") or {}).get("weather") or []
+        if weather:
+            return
+        if getattr(self, "_dashboard_weather_busy", False):
+            return
+        self._dashboard_weather_busy = True
+        expected = self.pipeline
+        def worker() -> None:
+            error = ""
+            try:
+                expected.phase3.refresh_weather(forecast_days=8)
+            except Exception as exc:
+                error = str(exc)
+            def done() -> None:
+                self._dashboard_weather_busy = False
+                if self.pipeline is not expected:
+                    return
+                if error:
+                    self.log(f"Dashboard weather refresh warning: {error}")
+                    return
+                if self.dashboard_service:
+                    self.dashboard_service.invalidate()
+                self.refresh_dashboard()
+            try:
+                self.root.after(0, done)
+            except tk.TclError:
+                pass
+        threading.Thread(target=worker, daemon=True, name="marginmise-dashboard-weather").start()
 
     def _scheduled_refresh(self) -> None:
         try:

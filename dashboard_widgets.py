@@ -217,6 +217,7 @@ class DashboardView:
 
         self._build_header()
         self.setup_section = tk.Frame(self.content, bg=FROST_WHITE)
+        self.brief_section = tk.Frame(self.content, bg=FROST_WHITE)
         self.kpi_section = tk.Frame(self.content, bg=FROST_WHITE)
         self.analytics_section = tk.Frame(self.content, bg=FROST_WHITE)
         self.priority_section = tk.Frame(self.content, bg=FROST_WHITE)
@@ -326,6 +327,7 @@ class DashboardView:
         self.summary = None
         self.welcome_var.set(message)
         self._clear_section(self.setup_section)
+        self._clear_section(self.brief_section)
         self._clear_section(self.kpi_section)
         self._clear_section(self.analytics_section)
         self._clear_section(self.priority_section)
@@ -373,6 +375,7 @@ class DashboardView:
         )
         self._clear_figures()
         self._clear_section(self.setup_section)
+        self._clear_section(self.brief_section)
         self._clear_section(self.kpi_section)
         self._clear_section(self.analytics_section)
         self._clear_section(self.priority_section)
@@ -388,10 +391,12 @@ class DashboardView:
             self._render_setup(summary["setup_items"])
         else:
             self.setup_section.pack_forget()
+            self.brief_section.pack(fill="x", pady=(4, 8), before=self.kpi_section)
             if not self.analytics_section.winfo_manager():
                 self.analytics_section.pack(fill="x", pady=(0, 6), before=self.priority_section)
             if not self.kpi_section.winfo_manager():
                 self.kpi_section.pack(fill="x", pady=(5, 6), before=self.analytics_section)
+            self._render_brief(summary.get("operational_brief", {}))
             self._render_kpis(summary["kpis"])
             self._render_analytics(summary)
         self._render_priorities(summary["priorities"])
@@ -432,6 +437,57 @@ class DashboardView:
             self._bind_click(card.body, lambda _e, row=item: self.navigate(row["action"], row))
         self.setup_section.columnconfigure(0, weight=1)
         self.setup_section.columnconfigure(1, weight=1)
+
+    def _render_brief(self, brief: dict[str, Any]) -> None:
+        title = tk.Frame(self.brief_section, bg=FROST_WHITE)
+        title.pack(fill="x", pady=(0, 4))
+        tk.Label(title, text="Daily Operating Brief", bg=FROST_WHITE, fg=PRIMARY_NAVY,
+                 font=(FONT_FAMILY, 14, "bold")).pack(side="left")
+        tk.Label(title, text="Sales, inventory, conditions and decisions that can change today's operation",
+                 bg=FROST_WHITE, fg=SLATE, font=(FONT_FAMILY, 8)).pack(side="left", padx=8)
+        grid = tk.Frame(self.brief_section, bg=FROST_WHITE)
+        grid.pack(fill="x")
+        cards = []
+        today_sales = brief.get("today_sales")
+        last_year = brief.get("same_day_last_year")
+        change = brief.get("same_day_change_percent")
+        sales_text = "—" if not brief.get("today_sales_available") else f"${today_sales:,.0f}"
+        comparison = "No same-day prior-year data" if not brief.get("same_day_last_year_available") else f"${last_year:,.0f} same day last year"
+        if change is not None:
+            comparison += f" · {'▲' if change >= 0 else '▼'} {abs(change):.1f}%"
+        cards.append(("TODAY'S SALES", sales_text, comparison, OCEAN_TEAL))
+        weather = brief.get("weather", [])
+        if weather:
+            w = weather[0]
+            weather_text = f"{w.get('temperature_max_f', 0):.0f}° / {w.get('temperature_min_f', 0):.0f}°F"
+            rain = w.get("precipitation_probability")
+            weather_sub = f"Rain chance {rain:.0f}%" if rain is not None else "Forecast available"
+        else:
+            weather_text, weather_sub = "—", "Weather not yet synced"
+        cards.append(("TODAY'S WEATHER", weather_text, weather_sub, OCEAN_TEAL))
+        low = brief.get("low_stock", [])
+        low_text = str(len(low)) if low else "0"
+        low_sub = "critical/low items" if low else "No low-stock alerts"
+        cards.append(("LOW STOCK", low_text, low_sub, ERROR if low else SUCCESS))
+        events = brief.get("events", [])
+        event_text = str(len(events)) if events else "0"
+        event_sub = (str(events[0].get("event_name") or "Upcoming event")[:42] if events else "No events in next 7 days")
+        cards.append(("EVENTS / HOLIDAYS", event_text, event_sub, FIRE_ORANGE if events else SUCCESS))
+        for index, (label, value, sub, accent) in enumerate(cards):
+            card = Card(grid, height=92, accent=accent)
+            card.grid(row=0, column=index, sticky="nsew", padx=3)
+            tk.Label(card.body, text=label, bg=WHITE, fg=SLATE, font=(FONT_FAMILY, 7, "bold")).pack(anchor="w")
+            tk.Label(card.body, text=value, bg=WHITE, fg=PRIMARY_NAVY, font=(FONT_FAMILY, 15, "bold")).pack(anchor="w", pady=(1,0))
+            tk.Label(card.body, text=sub, bg=WHITE, fg=SLATE, font=(FONT_FAMILY, 7), wraplength=205, justify="left").pack(anchor="w")
+            grid.columnconfigure(index, weight=1)
+        low_frame = tk.Frame(self.brief_section, bg=FROST_WHITE)
+        low_frame.pack(fill="x", pady=(5,0))
+        if low:
+            text = "LOW STOCK: " + " · ".join(f"{x['item_name']} ({x['on_hand']:.1f} {x['unit']}, ~{x['days_remaining']:.1f} days)" for x in low[:4])
+            tk.Label(low_frame, text=text, bg=WHITE, fg=ERROR, font=(FONT_FAMILY, 8, "bold"), anchor="w", wraplength=1000, padx=8, pady=5).pack(fill="x")
+        elif events:
+            text = "UPCOMING: " + " · ".join(f"{x.get('event_date','')}: {x.get('event_name','')}" for x in events[:4])
+            tk.Label(low_frame, text=text, bg=WHITE, fg=CHARCOAL, font=(FONT_FAMILY, 8), anchor="w", wraplength=1000, padx=8, pady=5).pack(fill="x")
 
     def _render_kpis(self, kpis: list[dict[str, Any]]) -> None:
         for item in kpis:

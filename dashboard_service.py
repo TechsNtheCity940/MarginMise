@@ -198,6 +198,7 @@ class DashboardService:
             "on_track": self.get_on_track_items(current),
             "tasks": self.get_today_tasks(),
         }
+        operational_brief = self.get_operational_brief(start, end)
         setup_items = self.get_setup_progress()
         kpis = self.get_kpi_metrics(current, previous, sales_trend, margin_trend, start, end)
         sales_trend["change_text"] = kpis[0]["change_text"]
@@ -226,6 +227,7 @@ class DashboardService:
             "margin_trend": margin_trend,
             "cost_breakdown": breakdown,
             "priorities": priorities,
+            "operational_brief": operational_brief,
             "setup_items": setup_items,
             "has_operational_data": bool(
                 current["sales_available"]
@@ -248,6 +250,111 @@ class DashboardService:
         summary["costpilot_context"] = self._costpilot_context(summary)
         self._cache[key] = (time.monotonic(), summary)
         return summary
+
+    def get_operational_brief(self, start: date, end: date) -> dict[str, Any]:
+        """Return the manager's daily operating brief from the existing ledger."""
+        today = date.today()
+        target_day = end if end <= today else today
+        try:
+            prior_year = target_day.replace(year=target_day.year - 1)
+        except ValueError:
+            prior_year = target_day.replace(year=target_day.year - 1, day=28)
+        prior_rows, prior_source = self._sales_rows(prior_year, prior_year)
+        prior_year_sales = sum(float(row["value"]) for row in prior_rows)
+        today_rows, today_source = self._sales_rows(target_day, target_day)
+        today_sales = sum(float(row["value"]) for row in today_rows)
+        low_stock: list[dict[str, Any]] = []
+        with self.workspace.connect() as conn:
+            try:
+                rows = conn.execute(
+                    """SELECT i.item_id,i.item_name,i.vendor_name,i.category,i.count_unit,
+                              i.estimated_on_hand,op.par_quantity_count_units,op.safety_stock_days,
+                              op.average_daily_usage,op.current_price
+                       FROM items i JOIN (
+                           SELECT item_id,MAX(prediction_id) prediction_id
+                           FROM order_predictions GROUP BY item_id
+                       ) latest ON latest.item_id=i.item_id
+                       JOIN order_predictions op ON op.prediction_id=latest.prediction_id
+                       WHERE i.active=1 AND i.estimated_on_hand IS NOT NULL
+                       ORDER BY CASE WHEN CAST(i.estimated_on_hand AS REAL) <=
+                                      CAST(op.safety_stock_days AS REAL)*CAST(op.average_daily_usage AS REAL)
+                                     THEN 0 ELSE 1 END,
+                                CAST(i.estimated_on_hand AS REAL) ASC
+                       LIMIT 8"""
+                ).fetchall()
+                for row in rows:
+                    on_hand = _decimal(row["estimated_on_hand"])
+                    daily = _decimal(row["average_daily_usage"])
+                    safety_days = _decimal(row["safety_stock_days"])
+                    threshold = daily * safety_days
+                    if on_hand <= threshold and daily > 0:
+                        low_stock.append({
+                            "item_id": row["item_id"], "item_name": row["item_name"],
+                            "vendor": row["vendor_name"] or "Unknown vendor", "category": row["category"] or "",
+                            "on_hand": float(on_hand), "unit": row["count_unit"] or "each",
+                            "threshold": float(threshold), "days_remaining": float(on_hand / daily) if daily else None,
+                            "severity": "Critical" if on_hand <= 0 else "Warning",
+                            "action": "inventory", "permission": "inventory.count",
+                        })
+            except sqlite3.Error:
+                pass
+            event_rows = conn.execute(
+                """SELECT event_name,event_date,end_date,category,expected_sales_impact_percent,source
+                   FROM local_events WHERE end_date>=? AND event_date<=?
+                   ORDER BY event_date LIMIT 8""",
+                (target_day.isoformat(), (target_day + timedelta(days=7)).isoformat()),
+            ).fetchall()
+            weather_rows = conn.execute(
+                "SELECT * FROM weather_daily WHERE weather_date BETWEEN ? AND ? ORDER BY weather_date LIMIT 8",
+                (target_day.isoformat(), (target_day + timedelta(days=7)).isoformat()),
+            ).fetchall()
+        events = [dict(row) for row in event_rows]
+        holidays = self._us_holidays(target_day, target_day + timedelta(days=7))
+        event_names = {str(row["event_name"]).casefold() for row in events}
+        for holiday in holidays:
+            if holiday["event_name"].casefold() not in event_names:
+                events.append({**holiday, "category": "Holiday", "source": "US calendar", "expected_sales_impact_percent": 0})
+        return {
+            "today": target_day.isoformat(),
+            "today_sales": today_sales,
+            "today_sales_available": bool(today_rows),
+            "today_sales_source": today_source,
+            "same_day_last_year": prior_year_sales,
+            "same_day_last_year_available": bool(prior_rows),
+            "same_day_last_year_date": prior_year.isoformat(),
+            "same_day_change_percent": _percent_change(today_sales, prior_year_sales),
+            "low_stock": low_stock,
+            "events": events[:8],
+            "weather": [dict(row) for row in weather_rows],
+        }
+
+    @staticmethod
+    def _us_holidays(start: date, end: date) -> list[dict[str, Any]]:
+        """Small dependency-free US holiday calendar for operational planning."""
+        def nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
+            d = date(year, month, 1)
+            return d + timedelta(days=(weekday - d.weekday()) % 7 + 7 * (n - 1))
+        def last_weekday(year: int, month: int, weekday: int) -> date:
+            d = date(year, month + 1, 1) - timedelta(days=1) if month < 12 else date(year + 1, 1, 1) - timedelta(days=1)
+            return d - timedelta(days=(d.weekday() - weekday) % 7)
+        def observed(d: date) -> date:
+            return d - timedelta(days=1) if d.weekday() == 5 else d + timedelta(days=1) if d.weekday() == 6 else d
+        output: list[dict[str, Any]] = []
+        for year in {start.year, end.year}:
+            fixed = [("New Year's Day", date(year,1,1)), ("Juneteenth", date(year,6,19)), ("Independence Day", date(year,7,4)), ("Veterans Day", date(year,11,11)), ("Christmas Day", date(year,12,25))]
+            holidays = fixed + [
+                ("Martin Luther King Jr. Day", nth_weekday(year,1,0,3)),
+                ("Presidents' Day", nth_weekday(year,2,0,3)),
+                ("Memorial Day", last_weekday(year,5,0)),
+                ("Labor Day", nth_weekday(year,9,0,1)),
+                ("Columbus Day", nth_weekday(year,10,0,2)),
+                ("Thanksgiving Day", nth_weekday(year,11,3,4)),
+            ]
+            for name, day in holidays:
+                actual = observed(day)
+                if start <= actual <= end:
+                    output.append({"event_name": name, "event_date": actual.isoformat(), "end_date": actual.isoformat()})
+        return sorted(output, key=lambda row: row["event_date"])
 
     def get_kpi_metrics(
         self,
@@ -1470,6 +1577,7 @@ class DashboardService:
                 if item.get("action") == "margin_memory"
             ],
             "cost_breakdown": summary["cost_breakdown"]["items"][:8],
+            "operational_brief": summary.get("operational_brief", {}),
         }
 
     @staticmethod
