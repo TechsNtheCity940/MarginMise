@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Phase 3 intelligence for Restaurant Cost Controller v3.0.
 
 Adds portfolio reporting, inventory transfers, event/weather-aware forecasting,
@@ -818,6 +818,7 @@ class Phase3Service:
             events = conn.execute("SELECT * FROM local_events WHERE end_date>=? AND event_date<=?", ((today-timedelta(days=180)).isoformat(), today.isoformat())).fetchall()
             item_rows = conn.execute("SELECT item_id,item_name,current_price,estimated_on_hand,par_override_count_units,units_per_purchase_unit,lead_time_days,order_cycle_days,safety_stock_days FROM items WHERE active=1").fetchall()
             usage_rows = conn.execute("SELECT item_id,AVG(CAST(average_daily_usage AS REAL)) avg_daily,COUNT(*) samples FROM monthly_item_usage WHERE month>=? GROUP BY item_id", ((today-timedelta(days=180)).strftime("%Y-%m"),)).fetchall()
+            waste_rows = conn.execute("SELECT item_id,SUM(CAST(quantity_count_units AS REAL)) waste_qty,SUM(CAST(estimated_cost AS REAL)) waste_cost FROM waste_events WHERE event_date>=? AND event_date<=? GROUP BY item_id", ((today-timedelta(days=180)).isoformat(), today.isoformat())).fetchall()
         factors: dict[str, list[Decimal]] = defaultdict(list)
         weekdays: dict[int, list[Decimal]] = defaultdict(list)
         for day, sales in daily.items():
@@ -869,10 +870,21 @@ class Phase3Service:
             current_par = dec(row["par_override_count_units"])
             if usage <= 0 or current_par <= 0:
                 continue
-            target = (usage * (dec(row["lead_time_days"]) + dec(row["order_cycle_days"]) + dec(row["safety_stock_days"]))).quantize(Decimal("0.01"))
-            if target > current_par * Decimal("1.10"):
-                increase = ((target / current_par) - 1) * 100
-                par_recommendations.append({"item_id": row["item_id"], "item_name": row["item_name"], "current_par": float(current_par), "recommended_par": float(target), "increase_percent": float(increase), "sample_count": next((int(r["samples"]) for r in usage_rows if r["item_id"] == row["item_id"]), 0), "reason": "Observed average usage implies the current par does not cover lead time + order cycle + safety stock. Manager approval required."})
+            coverage_days = dec(row["lead_time_days"]) + dec(row["order_cycle_days"]) + dec(row["safety_stock_days"])
+            target = (usage * coverage_days).quantize(Decimal("0.01"))
+            waste = next((r for r in waste_rows if r["item_id"] == row["item_id"]), None)
+            waste_qty = dec(waste["waste_qty"]) if waste else Decimal("0")
+            waste_adjustment = Decimal("0")
+            if usage > 0 and waste_qty > 0:
+                waste_adjustment = max(Decimal("0"), min(Decimal("0.15"), waste_qty / usage / Decimal("180")))
+            target = (target * (Decimal("1") - waste_adjustment)).quantize(Decimal("0.01"))
+            delta_percent = ((target / current_par) - 1) * 100 if current_par else Decimal("0")
+            if abs(delta_percent) >= Decimal("10"):
+                direction = "increase" if delta_percent > 0 else "decrease"
+                reason = ("Observed usage indicates the current par is too low for lead time + order cycle + safety stock." if direction == "increase" else "Observed usage plus persistent waste indicates the current par may be too high; reducing it could lower spoilage.")
+                if waste_adjustment > 0:
+                    reason += f" Waste history reduced the target by {waste_adjustment*100:.1f}%."
+                par_recommendations.append({"item_id": row["item_id"], "item_name": row["item_name"], "current_par": float(current_par), "recommended_par": float(target), "increase_percent": float(delta_percent), "sample_count": next((int(r["samples"]) for r in usage_rows if r["item_id"] == row["item_id"]), 0), "waste_qty_180d": float(waste_qty), "reason": reason + " Manager approval required."})
         return {"factors_learned": learned, "par_recommendations": par_recommendations[:12]}
 
     def list_forecasts(self, limit: int = 200) -> list[sqlite3.Row]:
@@ -1177,3 +1189,4 @@ class Phase3Service:
                         writer = csv.DictWriter(fh, fieldnames=rows[0].keys()); writer.writeheader(); writer.writerows(dict(row) for row in rows)
                 paths.append(path)
         return paths
+

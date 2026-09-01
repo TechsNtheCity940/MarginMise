@@ -493,6 +493,9 @@ class DashboardView:
         par_recs = memory.get("par_recommendations") or []
         if par_recs:
             forecast_text += f" · MarginMemory recommends reviewing {len(par_recs)} par level{'s' if len(par_recs) != 1 else ''}"
+            top_par = par_recs[0]
+            direction = "increase" if float(top_par.get("increase_percent") or 0) > 0 else "decrease"
+            forecast_text += f" · {direction.title()} {top_par.get('item_name', 'item')} to {float(top_par.get('recommended_par', 0)):.1f}"
         tk.Label(forecast_frame, text=forecast_text, bg=WHITE, fg=PRIMARY_NAVY,
                  font=(FONT_FAMILY, 8, "bold"), anchor="w", wraplength=1000, padx=8, pady=6).pack(fill="x")
         low_frame = tk.Frame(self.brief_section, bg=FROST_WHITE)
