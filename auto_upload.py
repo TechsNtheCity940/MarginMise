@@ -31,7 +31,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, NamedTuple, Callable, Iterable
 
-from invoice_pipeline import InvoicePipeline, RestaurantWorkspace, parse_date, safe_filename
+from invoice_pipeline import (
+    InvoicePipeline,
+    RestaurantWorkspace,
+    parse_date,
+    safe_filename,
+    canonical_inventory_category,
+)
 from operational_controls import AuthenticatedUser
 AUTO_UPLOAD_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS auto_upload_events (
@@ -1180,7 +1186,11 @@ class AutoUploadRouter:
                     pos_item_key = str(row.get("POS Item Key") or row.get("pos_item_key") or "").strip()
                     menu_item_name = str(row.get("Menu Item Name") or row.get("menu_item_name") or "").strip()
                     menu_price = row.get("Menu Price") or row.get("menu_price") or ""
-                    category = str(row.get("Menu Category") or row.get("category") or "Unclassified").strip()
+                    category = canonical_inventory_category(
+        row.get("Menu Category") or row.get("category"),
+        row.get("Menu Item Name") or row.get("menu item name") or row.get("Item Name") or row.get("item_name") or "",
+        row.get("Unit") or row.get("unit") or "",
+    )
                     active_raw = str(row.get("Active") or row.get("active") or "1").strip().lower()
                     active = 0 if active_raw in {"0", "false", "no", "inactive"} else 1
                     if not menu_item_id or not pos_item_key or not menu_item_name:

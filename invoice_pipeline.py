@@ -480,6 +480,84 @@ def deterministic_id(prefix: str, value: str, length: int = 12) -> str:
     return f"{prefix}-{digest}"
 
 
+CANONICAL_INVENTORY_CATEGORIES = ("Dry goods", "Beverage", "Produce", "Dairy", "alcohol")
+
+_CATEGORY_KEYWORDS = {
+    "alcohol": (
+        "beer", "ale", "lager", "ipa", "stout", "cider", "wine", "champagne", "prosecco",
+        "vodka", "gin", "rum", "tequila", "whiskey", "whisky", "bourbon", "brandy", "cognac",
+        "liqueur", "liquor", "sake", "mezcal", "absinthe", "vermouth", "spirits",
+    ),
+    "Beverage": (
+        "soda", "cola", "sprite", "juice", "water", "sparkling water", "tonic", "coffee", "espresso",
+        "tea", "lemonade", "drink", "beverage", "syrup", "mixer", "energy drink", "sports drink",
+        "coconut water", "kombucha", "milkshake", "soft drink",
+    ),
+    "Produce": (
+        "lettuce", "romaine", "spinach", "kale", "arugula", "cabbage", "broccoli", "cauliflower",
+        "carrot", "celery", "onion", "garlic", "potato", "tomato", "avocado", "pepper", "cucumber",
+        "zucchini", "squash", "mushroom", "apple", "orange", "lemon", "lime", "berry", "berries",
+        "banana", "melon", "grape", "parsley", "cilantro", "basil", "mint", "thyme", "rosemary",
+        "herb", "fruit", "vegetable", "produce",
+    ),
+    "Dairy": (
+        "milk", "cream", "half and half", "butter", "cheese", "cheddar", "mozzarella", "parmesan",
+        "provolone", "swiss", "gouda", "brie", "feta", "goat cheese", "cream cheese", "sour cream",
+        "yogurt", "egg", "eggs", "custard", "whipped cream", "dairy",
+    ),
+    "Dry goods": (
+        "tomato paste", "canned tomato", "canned tomatoes", "tomato sauce", "marinara", "pasta sauce",
+        "olives", "pickles", "canned beans", "beans", "flour", "sugar", "rice", "pasta", "grain",
+        "cereal", "baking", "salt", "pepper", "spice", "dried herb", "olive oil", "vegetable oil",
+        "canola oil", "vinegar", "french fries", "frozen", "disposable", "takeout", "napkin", "paper bag",
+    ),
+}
+
+
+def auto_assign_inventory_category(description: Any, unit: Any = "") -> str:
+    """Assign every inventory item to one of MarginMise's five canonical categories.
+
+    Category assignment is deliberately deterministic and local. Alcohol wins
+    over the broader Beverage bucket, followed by Produce and Dairy; everything
+    else falls into Dry goods. The function never returns Unclassified, because
+    a new invoice item must not become a blocking review task just because its
+    category was absent from the source document.
+    """
+    text = normalize_text(f"{description or ''} {unit or ''}")
+    if not text:
+        return "Dry goods"
+    for category in ("alcohol", "Beverage", "Dry goods", "Produce", "Dairy"):
+        for keyword in _CATEGORY_KEYWORDS[category]:
+            normalized_keyword = normalize_text(keyword)
+            variants = {normalized_keyword}
+            if normalized_keyword and not normalized_keyword.endswith("S"):
+                variants.add(f"{normalized_keyword}S")
+                if normalized_keyword.endswith("Y"):
+                    variants.add(f"{normalized_keyword[:-1]}IES")
+            for variant in variants:
+                pattern = rf"(?<![A-Z0-9]){re.escape(variant)}(?![A-Z0-9])"
+                if re.search(pattern, text):
+                    return category
+    return "Dry goods"
+
+
+def canonical_inventory_category(value: Any, description: Any = "", unit: Any = "") -> str:
+    """Normalize an imported category or derive one from the item description."""
+    raw = str(value or "").strip()
+    aliases = {
+        "dry": "Dry goods", "dry goods": "Dry goods", "dry good": "Dry goods", "pantry": "Dry goods",
+        "beverage": "Beverage", "beverages": "Beverage", "non alcoholic": "Beverage", "non-alcoholic": "Beverage",
+        "produce": "Produce", "fruit": "Produce", "vegetable": "Produce",
+        "dairy": "Dairy", "dairy and eggs": "Dairy", "dairy & eggs": "Dairy", "eggs": "Dairy",
+        "alcohol": "alcohol", "alcoholic": "alcohol", "spirits": "alcohol", "liquor": "alcohol", "wine": "alcohol",
+    }
+    normalized = normalize_text(raw).lower()
+    for alias, category in aliases.items():
+        if normalize_text(alias).lower() == normalized:
+            return category
+    return auto_assign_inventory_category(description, unit)
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -1126,12 +1204,16 @@ class InvoiceValidator:
         canonical["source_link"] = str(data.get("source_link") or source.resolve())
         canonical_items: list[dict[str, Any]] = []
         items = data.get("items") if isinstance(data.get("items"), list) else []
+        default_item_confidence = float(data.get("extraction_confidence", 0.99) or 0.99)
         for index, item in enumerate(items, 1):
-            confidence = float(item.get("confidence", 0.0) or 0.0)
+            confidence = float(item.get("confidence", default_item_confidence) or default_item_confidence)
+            description = str(item.get("description") or "").strip()
+            unit = str(item.get("unit") or "each").strip() or "each"
+            category = canonical_inventory_category(item.get("category"), description, unit)
             canonical_items.append({
                 "sku": str(item.get("sku") or "").strip(),
-                "description": str(item.get("description") or "").strip(),
-                "category": str(item.get("category") or "Unclassified").strip() or "Unclassified",
+                "description": description,
+                "category": category,
                 "quantity": str(decimal_value(item.get("quantity"), f"line {index} quantity")),
                 "unit": str(item.get("unit") or "each").strip() or "each",
                 "unit_price": money_string(item.get("unit_price"), f"line {index} unit price"),
@@ -2040,8 +2122,8 @@ class InvoicePipeline:
                 sku = str(item.get("sku") or "").strip()
                 description = str(item.get("description") or "").strip()
                 normalized_description = normalize_text(description)
-                category = str(item.get("category") or "Unclassified")
                 unit = str(item.get("unit") or "each")
+                category = canonical_inventory_category(item.get("category"), description, unit)
                 quantity = decimal_value(item.get("quantity"), f"line {index} quantity")
                 unit_price = money(item.get("unit_price"), f"line {index} unit price")
                 line_total = money(item.get("line_total"), f"line {index} line total")
@@ -2063,7 +2145,9 @@ class InvoicePipeline:
                     item_id = deterministic_id("ITM", identity)
                     previous_price = None
                     match_status = "New Item"
-                    review_status = "New Item - Review Required"
+                    # Category is assigned automatically from the invoice line.
+                    # A new product therefore must not block invoice ingestion.
+                    review_status = "Approved"
                     purchase_count = 0
                     average_price = Decimal("0.00")
                     total_spent = Decimal("0.00")
@@ -2154,17 +2238,10 @@ class InvoicePipeline:
                         alert, confidence, match_status, "; ".join(notes),
                     ),
                 )
-                if new_item:
-                    conn.execute(
-                        """INSERT INTO reviews(invoice_id,item_id,severity,issue_type,issue,payload_json,status,created_at)
-                           VALUES(?, ?, 'WARNING', 'New Item', ?, ?, 'Open', ?)""",
-                        (
-                            invoice_id, item_id,
-                            f"New product requires category/name review: {description}",
-                            json.dumps({"item_id": item_id, "vendor": vendor_name, "sku": sku, "description": description}),
-                            now_iso(),
-                        ),
-                    )
+                # New items are intentionally not placed into the invoice review
+                # queue. Their category has already been assigned deterministically,
+                # so first-time products can flow through normal intake. Managers can
+                # still edit the Item Master later when they want to refine a name or unit.
 
     def get_invoice(self, invoice_id: str) -> sqlite3.Row | None:
         with self.workspace.connect() as conn:

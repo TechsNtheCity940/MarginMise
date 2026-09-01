@@ -45,7 +45,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from invoice_pipeline import RestaurantWorkspace, InvoicePipeline, safe_filename, parse_date, money_string, now_iso
+from invoice_pipeline import (
+    RestaurantWorkspace, InvoicePipeline, safe_filename, parse_date, money_string, now_iso,
+    canonical_inventory_category,
+)
 from recipe_costing import RecipeCostingService, read_document
 
 # Supported file extensions
@@ -509,7 +512,7 @@ def _route_menu_items(pipeline: InvoicePipeline, path: Path) -> tuple[str, str]:
                 conn.execute(
                     "INSERT OR REPLACE INTO menu_items(menu_item_id,pos_item_key,menu_item_name,category,menu_price,created_at,updated_at) "
                     "VALUES(?,?,?,?,?,?,?)",
-                    (menu_id, key, name, str(row.get("Category") or row.get("category") or "Unclassified"), price, stamp, stamp)
+                    (menu_id, key, name, canonical_inventory_category(row.get("Category") or row.get("category"), name), price, stamp, stamp)
                 )
                 count += 1
         return ("menu_items_imported", f"{count} menu items created")
