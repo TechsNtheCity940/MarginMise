@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import parse_qs, urlparse
 
-from inventory_planning import preferred_sales_rows
+from inventory_planning import infer_count_conversion, preferred_sales_rows
 
 MONEY = Decimal("0.01")
 QTY = Decimal("0.0001")
@@ -690,7 +690,15 @@ class Phase2Service:
                     key = str(row.get("POS Item Key") or row.get("pos_item_key") or normalize(name)).strip()
                     menu_item_id = str(row.get("Menu Item ID") or row.get("menu_item_id") or "").strip()
                     if not menu_item_id:
-                        found = conn.execute("SELECT menu_item_id FROM menu_items WHERE pos_item_key=? COLLATE NOCASE", (key,)).fetchone()
+                        found = conn.execute(
+                            "SELECT menu_item_id FROM menu_items WHERE pos_item_key=? COLLATE NOCASE ORDER BY updated_at DESC LIMIT 1",
+                            (key,),
+                        ).fetchone()
+                        if not found:
+                            found = conn.execute(
+                                "SELECT menu_item_id FROM menu_items WHERE LOWER(TRIM(menu_item_name))=LOWER(TRIM(?)) ORDER BY updated_at DESC LIMIT 1",
+                                (name,),
+                            ).fetchone()
                         menu_item_id = found["menu_item_id"] if found else f"MENU-{hashlib.sha256(key.encode()).hexdigest()[:14].upper()}"
                     menu_price = money(row.get("Menu Price") or row.get("menu_price"))
                     conn.execute(
@@ -738,6 +746,13 @@ class Phase2Service:
                 ingredient_count = 0
                 for ingredient in ingredients:
                     units_per = dec(ingredient["units_per_purchase_unit"], "1") or Decimal("1")
+                    if units_per == Decimal("1"):
+                        inferred_unit, inferred_units = infer_count_conversion(
+                            str(ingredient["unit"] or ingredient["count_unit"] or "each"),
+                            str(ingredient["unit"] or "each"),
+                        )
+                        if inferred_units > 1:
+                            units_per = inferred_units
                     unit_cost = money(dec(ingredient["current_price"]) / units_per)
                     effective_qty = dec(ingredient["quantity_count_units"]) / (dec(ingredient["yield_percent"], "100") / Decimal("100"))
                     recipe_cost += money(unit_cost * effective_qty)

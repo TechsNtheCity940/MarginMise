@@ -910,6 +910,7 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
             "address": tk.StringVar(),
             "assistant_display_name": tk.StringVar(value="CostPilot"),
             "target_menu_food_cost_percent": tk.StringVar(),
+            "estimated_labor_percent": tk.StringVar(value="30"),
             "margin_memory_materiality_threshold_percent": tk.StringVar(value="10"),
             "margin_memory_enabled": tk.BooleanVar(value=True),
             "automatic_backups_enabled": tk.BooleanVar(value=True),
@@ -927,6 +928,7 @@ class ManagerFirstRestaurantCostControllerGUI(RestaurantCostControllerGUI):
             ("Address", "address"),
             ("Assistant name", "assistant_display_name"),
             ("Target food cost %", "target_menu_food_cost_percent"),
+            ("Estimated labor % when actual labor is unavailable", "estimated_labor_percent"),
             ("MarginMemory override threshold %", "margin_memory_materiality_threshold_percent"),
         ]
         self.simple_setting_edit_widgets: list[ttk.Widget] = []

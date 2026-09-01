@@ -249,14 +249,14 @@ def infer_count_conversion(description: str, purchase_unit: str = "each") -> tup
     import re
     text = str(description or "").lower().replace("#", "")
     unit_alias = {
-        "lb": "lb", "lbs": "lb", "pound": "lb", "pounds": "lb",
+        "lb": "lb", "lbs": "lb", "ib": "lb", "pound": "lb", "pounds": "lb",
         "oz": "oz", "ounce": "oz", "ounces": "oz",
         "gal": "gallon", "gallon": "gallon", "gallons": "gallon",
         "qt": "quart", "quart": "quart", "quarts": "quart",
         "ct": "each", "count": "each", "ea": "each", "each": "each",
     }
     # 6 x 5 lb, 4/10 lb, 8 x 12 count.
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:x|/)\s*(\d+(?:\.\d+)?)\s*(lb|lbs|pounds?|oz|ounces?|gal|gallons?|qt|quarts?|ct|count|each|ea)\b", text)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:x|/)\s*(\d+(?:\.\d+)?)\s*(lb|lbs|ib|pounds?|oz|ounces?|gal|gallons?|qt|quarts?|ct|count|each|ea)\b", text)
     if match:
         count = Decimal(match.group(1)) * Decimal(match.group(2))
         return unit_alias[match.group(3)], count.quantize(QTY)
@@ -265,7 +265,7 @@ def infer_count_conversion(description: str, purchase_unit: str = "each") -> tup
     if match:
         return "each", Decimal(match.group(1)).quantize(QTY)
     # 40 lb case, 25 count bundle, 5 gallon pail.
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(lb|lbs|pounds?|oz|ounces?|gal|gallons?|qt|quarts?|ct|count|each|ea)\b", text)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(lb|lbs|ib|pounds?|oz|ounces?|gal|gallons?|qt|quarts?|ct|count|each|ea)\b", text)
     if match:
         return unit_alias[match.group(2)], Decimal(match.group(1)).quantize(QTY)
     purchase = str(purchase_unit or "each").strip().lower()
@@ -307,6 +307,25 @@ class InventoryPlanningService:
                 if name not in existing:
                     conn.execute(f"ALTER TABLE items ADD COLUMN {name} {definition}")
             conn.execute("UPDATE items SET count_unit=COALESCE(NULLIF(count_unit,''),unit,'each')")
+            self._repair_pack_conversions(conn)
+
+    def _repair_pack_conversions(self, conn: sqlite3.Connection) -> None:
+        """Repair legacy 1:1 package conversions when the purchase unit is explicit."""
+        rows = conn.execute(
+            "SELECT item_id,unit,count_unit,units_per_purchase_unit FROM items"
+        ).fetchall()
+        for row in rows:
+            current = d(row["units_per_purchase_unit"], "1")
+            if current != Decimal("1"):
+                continue
+            description = str(row["unit"] or row["count_unit"] or "")
+            inferred_unit, inferred_units = infer_count_conversion(description, description)
+            if inferred_units <= Decimal("1"):
+                continue
+            conn.execute(
+                "UPDATE items SET count_unit=?, units_per_purchase_unit=? WHERE item_id=?",
+                (inferred_unit, f"{inferred_units:.4f}", row["item_id"]),
+            )
 
     def settings(self) -> dict[str, Any]:
         data = self.workspace.load_settings()
@@ -475,6 +494,12 @@ class InventoryPlanningService:
     # ---------- sales selection and month close ----------
     def _best_sales_total(self, start: date, end: date) -> Decimal:
         with self.workspace.connect() as conn:
+            pos_total = conn.execute(
+                "SELECT COALESCE(SUM(CAST(net_sales AS REAL)),0) AS total FROM pos_sales_lines WHERE business_date>=? AND business_date<=?",
+                (start.isoformat(), end.isoformat()),
+            ).fetchone()["total"]
+            if float(pos_total or 0) > 0:
+                return m(pos_total)
             rows = conn.execute(
                 """SELECT period_start,period_end,net_sales,source_file,sales_id FROM sales
                    WHERE period_start<=? AND period_end>=? ORDER BY source_file,sales_id""",
@@ -507,6 +532,25 @@ class InventoryPlanningService:
             scored.append((len(covered), used_rows, total, source))
         scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
         return scored[0][2].quantize(MONEY) if scored else Decimal("0.00")
+
+    def _theoretical_month_cogs(self, conn: sqlite3.Connection, start: date, end: date) -> Decimal:
+        """Calculate ideal/theoretical COGS from recipe portions and POS sales."""
+        row = conn.execute(
+            """SELECT COALESCE(SUM(
+                       CAST(s.quantity AS REAL) *
+                       CAST(r.quantity_count_units AS REAL) /
+                       CASE WHEN CAST(r.yield_percent AS REAL)>0 THEN CAST(r.yield_percent AS REAL)/100.0 ELSE 1 END *
+                       CAST(COALESCE(i.current_price,'0') AS REAL) /
+                       CASE WHEN CAST(COALESCE(i.units_per_purchase_unit,'1') AS REAL)>0
+                            THEN CAST(COALESCE(i.units_per_purchase_unit,'1') AS REAL) ELSE 1 END
+                   ),0) AS total
+                FROM pos_sales_lines s
+                JOIN recipe_ingredients r ON r.menu_item_id=s.menu_item_id
+                JOIN items i ON i.item_id=r.item_id
+                WHERE s.business_date>=? AND s.business_date<=?""",
+            (start.isoformat(), end.isoformat()),
+        ).fetchone()
+        return m(row["total"] or 0)
 
     def _month_purchases(self, conn: sqlite3.Connection, start: date, end: date) -> tuple[Decimal, Decimal]:
         invoice = conn.execute(
@@ -671,13 +715,32 @@ class InventoryPlanningService:
             })
 
         complete_counts = not missing_open and not missing_end and bool(items)
-        estimated_cogs = (
-            opening_value + product_purchases - ending_value
-            if complete_counts else product_purchases
-        ).quantize(MONEY)
+        theoretical_cogs = self._theoretical_month_cogs(conn, start, end)
+        if complete_counts:
+            estimated_cogs = (opening_value + product_purchases - ending_value).quantize(MONEY)
+            cogs_source = "Physical inventory COGS"
+        elif theoretical_cogs > 0:
+            estimated_cogs = theoretical_cogs
+            cogs_source = "Recipe-based theoretical COGS"
+        else:
+            estimated_cogs = product_purchases.quantize(MONEY)
+            cogs_source = "Purchase-spend fallback estimate"
+        waste_cost = m(conn.execute(
+            "SELECT COALESCE(SUM(CAST(estimated_cost AS REAL)),0) FROM waste_events WHERE event_date>=? AND event_date<=?",
+            (start.isoformat(), end.isoformat()),
+        ).fetchone()[0])
+        labor_row = conn.execute(
+            """SELECT COALESCE(SUM(CAST(amount AS REAL)),0) AS total FROM operating_costs
+               WHERE cost_date>=? AND cost_date<=? AND (LOWER(category) LIKE '%labor%' OR LOWER(category) LIKE '%payroll%' OR LOWER(category) LIKE '%wage%')""",
+            (start.isoformat(), end.isoformat()),
+        ).fetchone()
+        actual_labor = m(labor_row["total"] or 0)
+        labor_percent = d(self.workspace.load_settings().get("estimated_labor_percent", 30), "30")
+        labor_cost = actual_labor if actual_labor > 0 else (net_sales * labor_percent / Decimal("100")).quantize(MONEY)
+        total_estimated_costs = (estimated_cogs + waste_cost + operating_costs + labor_cost).quantize(MONEY)
         margin = (net_sales - estimated_cogs).quantize(MONEY)
         margin_pct = ((margin / net_sales) * Decimal("100")).quantize(MONEY) if net_sales else Decimal("0")
-        contribution = (margin - operating_costs).quantize(MONEY)
+        contribution = (net_sales - total_estimated_costs).quantize(MONEY)
         if not items:
             count_status = "Open - no active inventory items"
         elif missing_open or missing_end:
@@ -696,6 +759,11 @@ class InventoryPlanningService:
             "opening_inventory_value": f"{opening_value:.2f}",
             "ending_inventory_value": f"{ending_value:.2f}",
             "estimated_cogs": f"{estimated_cogs:.2f}",
+            "estimated_cogs_source": cogs_source,
+            "waste_cost": f"{waste_cost:.2f}",
+            "estimated_labor_cost": f"{labor_cost:.2f}",
+            "estimated_labor_percent": f"{labor_percent:.2f}",
+            "estimated_total_costs": f"{total_estimated_costs:.2f}",
             "estimated_product_margin": f"{margin:.2f}",
             "estimated_product_margin_percent": f"{margin_pct:.2f}",
             "imported_operating_costs": f"{operating_costs:.2f}",
@@ -823,14 +891,36 @@ class InventoryPlanningService:
                         row["confidence"], row["notes"], now_iso(),
                     ),
                 )
-            estimated_cogs = (opening_value + product_purchases - ending_value).quantize(MONEY)
+            theoretical_cogs = self._theoretical_month_cogs(conn, start, end)
+            if missing_open == 0 and not missing_end:
+                estimated_cogs = (opening_value + product_purchases - ending_value).quantize(MONEY)
+                cogs_source = "Physical inventory COGS"
+            elif theoretical_cogs > 0:
+                estimated_cogs = theoretical_cogs
+                cogs_source = "Recipe-based theoretical COGS"
+            else:
+                estimated_cogs = product_purchases.quantize(MONEY)
+                cogs_source = "Purchase-spend fallback estimate"
+            waste_cost = m(conn.execute(
+                "SELECT COALESCE(SUM(CAST(estimated_cost AS REAL)),0) FROM waste_events WHERE event_date>=? AND event_date<=?",
+                (start.isoformat(), end.isoformat()),
+            ).fetchone()[0])
+            actual_labor = m(conn.execute(
+                """SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM operating_costs
+                   WHERE cost_date>=? AND cost_date<=? AND (LOWER(category) LIKE '%labor%' OR LOWER(category) LIKE '%payroll%' OR LOWER(category) LIKE '%wage%')""",
+                (start.isoformat(), end.isoformat()),
+            ).fetchone()[0])
+            labor_percent = d(self.workspace.load_settings().get("estimated_labor_percent", 30), "30")
+            labor_cost = actual_labor if actual_labor > 0 else (net_sales * labor_percent / Decimal("100")).quantize(MONEY)
+            total_estimated_costs = (estimated_cogs + waste_cost + operating_costs + labor_cost).quantize(MONEY)
             margin = (net_sales - estimated_cogs).quantize(MONEY)
             margin_pct = ((margin / net_sales) * Decimal("100")).quantize(MONEY) if net_sales else Decimal("0")
-            contribution = (margin - operating_costs).quantize(MONEY)
+            contribution = (net_sales - total_estimated_costs).quantize(MONEY)
             status = "Complete" if missing_open == 0 else f"Estimated ({missing_open} missing opening counts)"
             notes = (
-                "Estimated COGS uses physical counts and product invoice lines. Waste is included in depletion but not separately classified. "
-                "Labor is excluded unless imported as an operating cost."
+                f"COGS source: {cogs_source}. Purchases are inventory movement, not automatically period COGS. "
+                f"Estimated labor is {labor_percent:.1f}% of sales when actual labor is unavailable. "
+                "Waste/spoilage and imported operating costs are included in estimated total costs."
             )
             conn.execute(
                 """INSERT INTO monthly_closes(

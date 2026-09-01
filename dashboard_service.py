@@ -239,8 +239,9 @@ class DashboardService:
                 "product_cost": current["product_cost_source"],
                 "inventory": current["inventory_source"],
                 "margin": (
-                    "Gross margin is net sales less product cost. Product cost uses closed-period COGS "
-                    "when available and approved invoice purchases otherwise."
+                    "Gross margin is net sales less estimated product COGS. Product COGS uses finalized "
+                    "inventory COGS when available, otherwise recipe-based theoretical usage when POS and "
+                    "recipes are available, and only falls back to approved purchases when neither exists."
                 ),
             },
         }
@@ -315,6 +316,29 @@ class DashboardService:
             ),
         ]
 
+        total_cost_change = _percent_change(
+            current["total_estimated_costs"], previous["total_estimated_costs"]
+        )
+        kpis.append(
+            self._kpi(
+                "estimated_costs",
+                "Estimated Total Costs",
+                current["total_estimated_costs"],
+                "currency",
+                current["sales_available"],
+                total_cost_change,
+                comparison,
+                False,
+                [current["total_estimated_costs"]],
+                "reports",
+                "No sales data is available for this period.",
+                neutral_message=(
+                    f"{current['total_cost_percent']:.1f}% of sales · "
+                    f"COGS + waste + labor + operating costs"
+                ),
+            )
+        )
+
         if current["labor_available"]:
             labor_change = (
                 current["labor_percent"] - previous["labor_percent"]
@@ -347,23 +371,29 @@ class DashboardService:
                 )
             kpis.append(labor_kpi)
         else:
-            exception_change = _percent_change(
-                float(current["review_exceptions"]),
-                float(previous["review_exceptions"]),
+            labor_change = (
+                current["labor_percent"] - previous["labor_percent"]
+                if previous["sales"] > 0 and current["sales"] > 0
+                else None
             )
             kpis.append(
                 self._kpi(
-                    "review_exceptions",
-                    "Review Exceptions",
-                    float(current["review_exceptions"]),
-                    "integer",
-                    True,
-                    exception_change,
+                    "labor_cost",
+                    "Labor Cost %",
+                    current["labor_percent"],
+                    "percent",
+                    bool(current["sales_available"]),
+                    labor_change,
                     comparison,
                     False,
-                    current["exception_sparkline"],
-                    "review",
-                    "",
+                    current["labor_sparkline"],
+                    "reports",
+                    "No sales data is available for labor estimation.",
+                    change_unit="points",
+                    neutral_message=(
+                        f"Estimated at {current['estimated_labor_percent']:.1f}% of sales "
+                        "until actual labor is imported."
+                    ),
                 )
             )
 
@@ -526,6 +556,43 @@ class DashboardService:
         vendor: str = "",
         category: str = "",
     ) -> dict[str, Any]:
+        # The Overview cost chart reports economic cost, not cash purchases.
+        # A large invoice can increase inventory without becoming COGS in the
+        # same period, so purchases are shown separately in report details.
+        sales_rows, _ = self._sales_rows(start, end, category=category)
+        purchase_rows = self._product_cost_rows(start, end, vendor=vendor, category=category)
+        product_cogs, product_source, _ = self._estimated_product_cost(
+            start, end, vendor=vendor, category=category, purchase_rows=purchase_rows
+        )
+        waste = self._waste_cost(start, end) if not vendor and not category else 0.0
+        operating = self._operating_cost_total(start, end) if not vendor and not category else 0.0
+        labor_rows = self._labor_rows(start, end)
+        sales_total = sum(float(row["value"]) for row in sales_rows)
+        settings = self.workspace.load_settings()
+        labor_percent = float(_decimal(settings.get("estimated_labor_percent", 30.0)))
+        labor = sum(float(row["value"]) for row in labor_rows) if labor_rows else sales_total * labor_percent / 100.0
+        components = [
+            ("Product COGS", product_cogs),
+            ("Waste / Spoilage", waste),
+            ("Labor" + (" (Estimated)" if not labor_rows and sales_total else ""), labor),
+            ("Operating Costs", operating),
+        ]
+        components = [(name, amount) for name, amount in components if amount > 0]
+        grand_total = sum(amount for _name, amount in components)
+        return {
+            "items": [
+                {"category": name, "amount": amount, "percent": amount / grand_total * 100.0 if grand_total else 0.0}
+                for name, amount in components
+            ],
+            "total": grand_total,
+            "available": bool(components),
+            "empty_message": "No estimated cost data available for this period.",
+            "action": "reports",
+            "product_source": product_source,
+            "purchase_spend": sum(float(row["value"]) for row in purchase_rows),
+            "sales": sales_total,
+        }
+
         totals: defaultdict[str, float] = defaultdict(float)
         invoice_where, invoice_params = self._invoice_filters(
             start, end, vendor=vendor, category=category, line_alias="l", invoice_alias="i"
@@ -981,42 +1048,56 @@ class DashboardService:
         category: str = "",
     ) -> dict[str, Any]:
         sales_rows, sales_source = self._sales_rows(start, end, category=category)
-        product_rows = self._product_cost_rows(start, end, vendor=vendor, category=category)
+        purchase_rows = self._product_cost_rows(start, end, vendor=vendor, category=category)
         sales = sum(float(row["value"]) for row in sales_rows)
-        product_cost = sum(float(row["value"]) for row in product_rows)
-        product_source = "Approved invoice line purchases"
-        if not vendor and not category:
-            closed_cogs = self._closed_cogs(start, end)
-            if closed_cogs is not None:
-                product_cost = closed_cogs
-                product_source = "Closed inventory-period COGS"
-        gross_margin_available = bool(sales_rows) and (bool(product_rows) or product_source.startswith("Closed"))
+        purchase_spend = sum(float(row["value"]) for row in purchase_rows)
+        product_cost, product_source, estimated_product_rows = self._estimated_product_cost(
+            start, end, vendor=vendor, category=category, purchase_rows=purchase_rows
+        )
+        waste = self._waste_cost(start, end) if not vendor and not category else 0.0
+        labor_rows = self._labor_rows(start, end)
+        labor_actual = sum(float(row["value"]) for row in labor_rows)
+        settings = self.workspace.load_settings()
+        labor_target = float(_decimal(settings.get("estimated_labor_percent", 30.0)))
+        labor_estimated = sales * labor_target / 100.0
+        labor_available = bool(labor_rows) and sales > 0
+        labor = labor_actual if labor_available else labor_estimated
+        operating_costs = self._operating_cost_total(start, end) if not vendor and not category else 0.0
+        total_estimated_costs = product_cost + waste + operating_costs + labor
+        gross_margin_available = bool(sales_rows) and product_cost >= 0
         gross_margin_percent = (sales - product_cost) / sales * 100.0 if gross_margin_available and sales else 0.0
         product_percent_available = gross_margin_available and sales > 0
         product_percent = product_cost / sales * 100.0 if product_percent_available else 0.0
-        labor_rows = self._labor_rows(start, end)
-        labor = sum(float(row["value"]) for row in labor_rows)
-        labor_available = bool(labor_rows) and sales > 0
+        total_cost_percent = total_estimated_costs / sales * 100.0 if sales else 0.0
         inventory_value, inventory_source = self._inventory_value_as_of(end)
         inventory_previous_points = self._inventory_history(end, 7)
         exception_series = self._review_exception_series(start, end)
-        settings = self.workspace.load_settings()
         target_cost = float(_decimal(settings.get("target_menu_food_cost_percent", 30.0)))
         return {
             "sales": sales,
             "sales_available": bool(sales_rows),
             "sales_source": sales_source,
+            "purchase_spend": purchase_spend,
+            "purchase_spend_source": "Approved invoice purchases",
             "product_cost": product_cost,
-            "product_cost_available": bool(product_rows) or product_source.startswith("Closed"),
+            "product_cost_available": gross_margin_available,
             "product_cost_source": product_source,
-            "product_cost_label": "Product Cost %",
+            "product_cost_label": "Product COGS %",
             "product_cost_percent": product_percent,
             "product_cost_percent_available": product_percent_available,
             "gross_margin_percent": gross_margin_percent,
             "gross_margin_available": gross_margin_available,
+            "waste_cost": waste,
+            "operating_costs": operating_costs,
             "labor_cost": labor,
-            "labor_percent": labor / sales * 100.0 if labor_available else 0.0,
+            "labor_actual": labor_actual,
+            "labor_percent": labor / sales * 100.0 if sales else 0.0,
             "labor_available": labor_available,
+            "labor_estimated": not labor_available and sales > 0,
+            "estimated_labor_percent": labor_target,
+            "total_estimated_costs": total_estimated_costs,
+            "total_cost_percent": total_cost_percent,
+            "estimated_operating_profit": sales - total_estimated_costs,
             "inventory_value": inventory_value,
             "inventory_available": inventory_source != "Unavailable",
             "inventory_source": inventory_source,
@@ -1025,17 +1106,114 @@ class DashboardService:
             "target_gross_margin_percent": 100.0 - target_cost,
             "product_cost_sparkline": self._ratio_series(
                 sales_rows,
-                product_rows,
+                estimated_product_rows,
                 numerator_is_cost=True,
             ),
             "labor_sparkline": self._ratio_series(
                 sales_rows,
-                labor_rows,
+                labor_rows or [{"date": row["date"], "value": sales * labor_target / 100.0} for row in sales_rows],
                 numerator_is_cost=True,
             ),
             "exception_sparkline": list(exception_series.values()),
             "inventory_sparkline": inventory_previous_points,
         }
+
+    def _estimated_product_cost(
+        self,
+        start: date,
+        end: date,
+        *,
+        vendor: str = "",
+        category: str = "",
+        purchase_rows: list[dict[str, Any]] | None = None,
+    ) -> tuple[float, str, list[dict[str, Any]]]:
+        """Estimate product COGS without confusing purchases with usage.
+
+        Priority is physical inventory COGS, then recipe/theoretical COGS from
+        POS sales, then purchase spend as an explicitly labeled fallback. A
+        restaurant can buy $20k of product and still use only $10k in the period;
+        purchases are cash/inventory movement, not automatically cost of sales.
+        """
+        purchase_rows = purchase_rows if purchase_rows is not None else self._product_cost_rows(
+            start, end, vendor=vendor, category=category
+        )
+        if not vendor and not category:
+            closed = self._closed_cogs(start, end)
+            if closed is not None:
+                return closed, "Finalized inventory COGS", self._rows_from_total(closed, start, end)
+        theoretical: list[dict[str, Any]] = []
+        try:
+            menu_rows = self.pipeline.phase2.list_menu_costs(start.isoformat(), end.isoformat())
+            for row in menu_rows:
+                if category and str(row.get("category") or "").casefold() != category.casefold():
+                    continue
+                amount = float(row.get("theoretical_food_cost") or 0)
+                if amount > 0:
+                    theoretical.append({"date": end.isoformat(), "value": amount})
+            # Aggregate the per-menu theoretical costs into one period total.
+            theoretical_total = sum(float(row["value"]) for row in theoretical)
+        except Exception:
+            theoretical = self._theoretical_product_cost_rows(start, end, category=category)
+            theoretical_total = sum(float(row["value"]) for row in theoretical)
+        if theoretical_total > 0:
+            return theoretical_total, "Recipe-based theoretical COGS from POS sales", self._rows_from_total(theoretical_total, start, end)
+        purchases = sum(float(row["value"]) for row in purchase_rows)
+        return purchases, "Approved invoice purchases (fallback estimate)", purchase_rows
+
+    @staticmethod
+    def _rows_from_total(total: float, start: date, end: date) -> list[dict[str, Any]]:
+        if total <= 0:
+            return []
+        return [{"date": end.isoformat(), "value": float(total)}]
+
+    def _theoretical_product_cost_rows(
+        self,
+        start: date,
+        end: date,
+        *,
+        category: str = "",
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [start.isoformat(), end.isoformat()]
+        category_where = ""
+        if category:
+            category_where = " AND LOWER(COALESCE(m.category,''))=LOWER(?)"
+            params.append(category)
+        with self.workspace.connect() as conn:
+            rows = conn.execute(
+                f"""SELECT s.business_date AS day,
+                           COALESCE(SUM(
+                               CAST(s.quantity AS REAL) *
+                               CAST(r.quantity_count_units AS REAL) /
+                               CASE WHEN CAST(r.yield_percent AS REAL)>0 THEN CAST(r.yield_percent AS REAL)/100.0 ELSE 1 END *
+                               CAST(COALESCE(i.current_price,'0') AS REAL) /
+                               CASE WHEN CAST(COALESCE(i.units_per_purchase_unit,'1') AS REAL)>0
+                                    THEN CAST(COALESCE(i.units_per_purchase_unit,'1') AS REAL) ELSE 1 END
+                           ),0) AS value
+                    FROM pos_sales_lines s
+                    JOIN recipe_ingredients r ON r.menu_item_id=s.menu_item_id
+                    JOIN items i ON i.item_id=r.item_id
+                    JOIN menu_items m ON m.menu_item_id=s.menu_item_id
+                    WHERE s.business_date>=? AND s.business_date<=? {category_where}
+                    GROUP BY s.business_date ORDER BY s.business_date""",
+                params,
+            ).fetchall()
+        return [{"date": str(row["day"]), "value": float(row["value"] or 0)} for row in rows]
+
+    def _waste_cost(self, start: date, end: date) -> float:
+        with self.workspace.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(CAST(estimated_cost AS REAL)),0) AS total FROM waste_events WHERE event_date>=? AND event_date<=?",
+                (start.isoformat(), end.isoformat()),
+            ).fetchone()
+        return float(row["total"] or 0)
+
+    def _operating_cost_total(self, start: date, end: date) -> float:
+        with self.workspace.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(CAST(amount AS REAL)),0) AS total FROM operating_costs WHERE cost_date>=? AND cost_date<=?",
+                (start.isoformat(), end.isoformat()),
+            ).fetchone()
+        return float(row["total"] or 0)
 
     def _sales_rows(
         self,

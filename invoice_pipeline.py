@@ -184,6 +184,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "event_weather_forecasting_enabled": True,
     "weather_forecast_days": 16,
     "target_menu_food_cost_percent": 30.0,
+    "estimated_labor_percent": 30.0,
     "estimated_manual_invoice_minutes": 8.0,
     "estimated_manager_hourly_cost": 25.0,
     "distributor_exchange_enabled": True,
