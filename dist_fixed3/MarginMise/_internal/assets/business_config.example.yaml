@@ -1,0 +1,19 @@
+business:
+  name: "YOUR RESTAURANT NAME"
+  currency: "USD"
+  timezone: "America/Chicago"
+
+thresholds:
+  price_alert_percent: 5
+  ocr_confidence_minimum: 0.85
+  invoice_math_tolerance: 0.05
+
+reporting:
+  preferred_sales_value: "net_sales_excluding_sales_tax"
+  week_starts_on: "Monday"
+
+rules:
+  preserve_original_files: true
+  require_review_for_new_items: true
+  prevent_duplicate_invoices: true
+  label_sales_minus_purchases_as_net_profit: false

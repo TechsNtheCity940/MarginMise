@@ -468,6 +468,18 @@ class Phase2Service:
             )
             return row["menu_item_id"]
         menu_item_id = f"MENU-{hashlib.sha256(key.encode()).hexdigest()[:14].upper()}"
+        # Older menu imports may already have consumed the deterministic ID
+        # under a different POS key. Reuse that row rather than failing every
+        # subsequent POS line with a UNIQUE constraint violation.
+        id_row = conn.execute(
+            "SELECT menu_item_id FROM menu_items WHERE menu_item_id=?", (menu_item_id,)
+        ).fetchone()
+        if id_row:
+            conn.execute(
+                "UPDATE menu_items SET pos_item_key=?,menu_item_name=?,menu_price=CASE WHEN ?>0 THEN ? ELSE menu_price END,updated_at=? WHERE menu_item_id=?",
+                (key, name, float(unit_price), f"{unit_price:.2f}", stamp, menu_item_id),
+            )
+            return menu_item_id
         conn.execute(
             "INSERT INTO menu_items(menu_item_id,pos_item_key,menu_item_name,menu_price,created_at,updated_at) VALUES(?,?,?,?,?,?)",
             (menu_item_id, key, name, f"{unit_price:.2f}", stamp, stamp),

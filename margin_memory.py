@@ -170,6 +170,24 @@ CREATE TABLE IF NOT EXISTS inventory_estimates (
 );
 CREATE INDEX IF NOT EXISTS idx_inventory_estimates_item
     ON inventory_estimates(item_id, as_of_date DESC);
+
+CREATE TABLE IF NOT EXISTS margin_memory_sales_factors (
+    factor_id TEXT PRIMARY KEY,
+    location_id TEXT NOT NULL,
+    factor_type TEXT NOT NULL,
+    factor_key TEXT NOT NULL,
+    sample_count INTEGER NOT NULL,
+    baseline_sales TEXT NOT NULL,
+    observed_sales TEXT NOT NULL,
+    multiplier TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    last_observed_date TEXT,
+    explanation TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    UNIQUE(location_id, factor_type, factor_key)
+);
+CREATE INDEX IF NOT EXISTS idx_margin_memory_sales_factors
+    ON margin_memory_sales_factors(location_id, factor_type, confidence DESC);
 """
 
 
@@ -1704,6 +1722,67 @@ class MarginMemoryService:
             "sample_count": sample_count,
         }
 
+    def learn_operational_factors(self, *, start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
+        """Learn sales effects from weekday, weather and event/holiday history.
+
+        Factors are descriptive correlations, not causal claims. They require at
+        least three observations and expose sample count/confidence to managers.
+        """
+        end = date.fromisoformat(end_date) if end_date else date.today()
+        start = date.fromisoformat(start_date) if start_date else end - timedelta(days=730)
+        with self.workspace.connect() as conn:
+            sales = conn.execute("SELECT period_start, net_sales FROM sales WHERE period_start BETWEEN ? AND ? ORDER BY period_start", (start.isoformat(), end.isoformat())).fetchall()
+            weather = {r["weather_date"]: r for r in conn.execute("SELECT * FROM weather_daily WHERE weather_date BETWEEN ? AND ?", (start.isoformat(), end.isoformat())).fetchall()}
+            events = conn.execute("SELECT event_date,end_date,event_name,category,expected_sales_impact_percent FROM local_events WHERE end_date>=? AND event_date<=?", (start.isoformat(), end.isoformat())).fetchall()
+        by_date = {str(r["period_start"]): dec(r["net_sales"]) for r in sales if dec(r["net_sales"]) > 0}
+        weekdays = {i: [v for k,v in by_date.items() if date.fromisoformat(k).weekday()==i] for i in range(7)}
+        facts=[]
+        for i,vals in weekdays.items():
+            if len(vals)>=3: facts.append(("weekday",str(i),vals,[],sum(vals)/Decimal(len(vals))))
+        # Weather: compare each rainy day with the dry-day average for the same weekday.
+        rain_ratios=[]
+        for k,v in by_date.items():
+            w=weather.get(k)
+            if w and dec(w["precipitation_probability"])>=50:
+                wd=date.fromisoformat(k).weekday()
+                baseline=[x for dk,x in by_date.items() if date.fromisoformat(dk).weekday()==wd and (dk not in weather or dec(weather[dk]["precipitation_probability"])<50)]
+                if baseline: rain_ratios.append((v/(sum(baseline)/Decimal(len(baseline))),v))
+        if len(rain_ratios)>=3:
+            facts.append(("weather","rain",[x[1] for x in rain_ratios],[],sum(x[0] for x in rain_ratios)/Decimal(len(rain_ratios))))
+        # Events/holidays: group by category and compare event dates to non-event dates on the same weekday.
+        by_category={}
+        for e in events:
+            cat=str(e["category"] or e["event_name"] or "Event")
+            by_category.setdefault(cat, set()).update(
+                k for k in by_date if str(e["event_date"])<=k<=str(e["end_date"])
+            )
+        for cat,days in by_category.items():
+            ratios=[]; observed=[]
+            for k in days:
+                if k not in by_date: continue
+                wd=date.fromisoformat(k).weekday()
+                baseline=[v for dk,v in by_date.items() if dk not in days and date.fromisoformat(dk).weekday()==wd]
+                if baseline:
+                    observed.append(by_date[k]); ratios.append(by_date[k]/(sum(baseline)/Decimal(len(baseline))))
+            if len(ratios)>=3:
+                facts.append(("event",cat,observed,[],sum(ratios)/Decimal(len(ratios))))
+        learned=0
+        with self.workspace.connect() as conn:
+            for typ,key,observed,comparison,observed_avg in facts:
+                baseline_vals=[]
+                if typ=='weekday': baseline_vals=[v for i,vals in weekdays.items() if str(i)!=key for v in vals]
+                elif typ=='weather': baseline_vals=dry
+                else:
+                    baseline_vals=[v for v in by_date.values() if v>0]
+                if not baseline_vals: continue
+                baseline=sum(baseline_vals)/Decimal(len(baseline_vals)); mult=(observed_avg/baseline) if baseline else Decimal('1')
+                conf=min(Decimal('1'),Decimal(len(observed))/Decimal('12'))
+                fid=f"FAC-{hashlib.sha256(f'{self.location_id}:{typ}:{key}'.encode()).hexdigest()[:18].upper()}"
+                explanation=f"Observed {len(observed)} sample(s); observed average ${observed_avg:,.2f} vs baseline ${baseline:,.2f}."
+                conn.execute("""INSERT INTO margin_memory_sales_factors(factor_id,location_id,factor_type,factor_key,sample_count,baseline_sales,observed_sales,multiplier,confidence,last_observed_date,explanation,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(location_id,factor_type,factor_key) DO UPDATE SET sample_count=excluded.sample_count,baseline_sales=excluded.baseline_sales,observed_sales=excluded.observed_sales,multiplier=excluded.multiplier,confidence=excluded.confidence,last_observed_date=excluded.last_observed_date,explanation=excluded.explanation,updated_at=excluded.updated_at""",(fid,self.location_id,typ,key,len(observed),f'{baseline:.2f}',f'{observed_avg:.2f}',f'{mult:.4f}',f'{conf:.4f}',max(by_date.keys()) if by_date else None,explanation,now_iso()))
+                learned+=1
+        return {"learned":learned,"factors":[{"type":t,"key":k,"samples":len(o)} for t,k,o,_,_ in facts]}
+
     def learn_from_outcomes(self, *, evaluation_date: str | None = None) -> dict[str, Any]:
         """Run the full learning cycle:
 
@@ -1718,6 +1797,7 @@ class MarginMemoryService:
 
         # Step 1: Evaluate pending outcomes
         eval_result = self.evaluate_pending_outcomes(evaluation_date)
+        factor_result = self.learn_operational_factors(end_date=evaluation_date)
 
         # Step 2: Find the most impactful learned patterns
         with self.workspace.connect() as conn:
@@ -1782,6 +1862,7 @@ class MarginMemoryService:
 
         return {
             "evaluation_result": eval_result,
+            "operational_factors": factor_result,
             "learned_patterns": patterns,
             "summary": (
                 f"Evaluated {eval_result.get('evaluated', 0)} decision(s). "

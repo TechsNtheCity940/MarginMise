@@ -1,0 +1,24 @@
+{
+  "brand": {
+    "primary_navy": "#0B1F33",
+    "ocean_teal": "#0F6B78",
+    "burgundy": "#7A1F3D",
+    "fire_orange": "#F97316",
+    "frost_white": "#F8FAFC",
+    "charcoal": "#1E293B",
+    "white": "#FFFFFF"
+  },
+  "status": {
+    "success": "#16A34A",
+    "warning": "#F59E0B",
+    "error": "#DC2626"
+  },
+  "usage": {
+    "midnight_navy": "Main left navigation, major shell elements, dark headers",
+    "ocean_teal": "Active navigation, chart lines, secondary buttons",
+    "burgundy": "Brand accents, selected financial metrics, section highlights",
+    "fire_orange": "Primary action buttons, CTA elements",
+    "white": "Card backgrounds, content areas",
+    "frost_white": "App background"
+  }
+}

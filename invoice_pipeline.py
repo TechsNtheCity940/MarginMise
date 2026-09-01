@@ -2121,6 +2121,7 @@ class InvoicePipeline:
                 return
             for index, item in enumerate(canonical.get("items", []), 1):
                 sku = str(item.get("sku") or "").strip()
+                sku_db = sku or None
                 description = str(item.get("description") or "").strip()
                 normalized_description = normalize_text(description)
                 unit = str(item.get("unit") or "each")
@@ -2198,7 +2199,7 @@ class InvoicePipeline:
                         count_unit=CASE WHEN items.count_unit IS NULL OR items.count_unit='' THEN excluded.count_unit ELSE items.count_unit END,
                         units_per_purchase_unit=CASE WHEN items.units_per_purchase_unit IS NULL OR items.units_per_purchase_unit='' OR items.units_per_purchase_unit='1.0000' THEN excluded.units_per_purchase_unit ELSE items.units_per_purchase_unit END""",
                     (
-                        item_id, vendor_key, vendor_name, sku, description, normalized_description, category, unit,
+                        item_id, vendor_key, vendor_name, sku_db, description, normalized_description, category, unit,
                         first_date, invoice_date, f"{first_price:.2f}",
                         f"{previous_price:.2f}" if previous_price is not None else "",
                         f"{unit_price:.2f}", f"{price_change:.2f}" if price_change is not None else "",
